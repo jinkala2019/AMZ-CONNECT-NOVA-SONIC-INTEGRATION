@@ -16,6 +16,9 @@ const apiSecret = process.env.TWILIO_API_SECRET;
 const accountSid = process.env.TWILIO_ACCOUNT_SID;
 const sipEndpoint = process.env.SIP_ENDPOINT;
 
+const fromNumber = process.env.TWILIO_FROM_NUMBER;
+const toNumber = process.env.TWILIO_VERIFIED_CALLER_ID;
+
 const twClient = new Twilio(apiSid, apiSecret, {accountSid});
 
 
@@ -66,6 +69,33 @@ fastify.register(fastifyWs);
 fastify.get('/', async (request, reply) => {
     reply.send({ message: 'Twilio Media Stream Server is running!' });
 });
+
+
+// Route to initiate outbound calls to a phone number from Twilio
+// Invoke this endpoint to initiate an outbound call
+fastify.all('/outbound-call', async (request, reply) => {    
+
+    const twimlResponse = `<?xml version="1.0" encoding="UTF-8"?>
+                          <Response>
+                              <Say>Please wait while we connect your call to Amazon Nova Sonic A.I. speech to speech system </Say>
+                              <Pause length="1"/>
+                              <Say>O.K. you can start talking!</Say>
+                              <Connect>
+                                <Stream url="wss://${request.headers.host}/media-stream" />
+                              </Connect>
+                          </Response>`;
+    
+
+    const call = await twClient.calls.create({
+        from: fromNumber,
+        to: toNumber,
+        twiml: twimlResponse,
+      });
+
+      reply.type('text/plain').send("Ok");
+
+});
+
 
 // Route for Twilio to handle incoming and outgoing calls
 // <Say> punctuation to improve text-to-speech translation
