@@ -37,7 +37,7 @@ import {
     private maxQueueSize = 200; // Maximum number of audio chunks to queue
     private isProcessingAudio = false;
     private isActive = true;
-    public streamSid = ""; //for twilio stream
+    public streamARN = ""; //for twilio stream
   
     constructor(
       private sessionId: string,

@@ -1,122 +1,165 @@
-# Integrating Twilio with Amazon Nova Sonic speech-to-speech model
+# Amazon Connect to Nova Sonic WebRTC Bridge Server
+
+A real-time audio bridge that connects Amazon Connect contact center calls to Amazon Nova Sonic's AI-powered speech processing using KVS (Kinesis Video Streams) signaling channels and WebRTC technology for intelligent customer service interactions with comprehensive call logging and transcript tracking.
 
 ## Getting started
 
-### Pre-requisites
+### Prerequisites
 
-#### Local dev
-- Install node.js 18+
-- Install [localtunnel](https://github.com/localtunnel/localtunnel) to expose local server to the internet `npm i -g localtunnel`
-- AWS profile configured with environment variable `AWS_PROFILE` defaulting to `bedrock-test` and region configured via `AWS_REGION` defaulting to `us-east-1`
+#### Local Development
+- Node.js 18+ installed
+- AWS credentials configured (AWS CLI, environment variables, or IAM role)
+- Permissions to create IAM roles and policies
+- Amazon Bedrock access enabled
 
-#### Twilio account
-1. Setup a Twilio account. Sign up for [free](https://www.twilio.com/try-twilio)
-2. Claim a Twilio Phone number with voice capabilities. [Instructions here](https://help.twilio.com/articles/223135247-How-to-Search-for-and-Buy-a-Twilio-Phone-Number-from-Console)
-3. (Optional) A programmable SIP domain to demo escalation to a call center agent. Check [SIP domain section](https://www.twilio.com/en-us/blog/studio-voice-genesys-cloud-account#sip-domain) in this blog
+#### Amazon Connect Setup
+1. Set up an Amazon Connect instance
+2. Configure a contact flow with "Start Media Streaming" block that uses KVS signaling channels
+3. Ensure your AWS account has access to Amazon Bedrock, Nova Sonic, and KVS
+4. Deploy the WebRTC bridge as a Fargate task that can be invoked by Lambda
 
-4. Go to account dashboard and capture the **Account SID** . 
-We need this to set `TWILIO_ACCOUNT_SID` environment variable.
-
-![Account dashboard](img/tw_account_dashboard.jpg "Twilio Account dashboard")
-
-5. Click on the Generate API keys and capture the newly created API keys.
-We need this to update the `TWILIO_API_SID` and `TWILIO_API_SECRET` environemnt variables.
-
-![Generate API Keys](img/tw_api_keys.jpg "Twilio Create API Key")
+### Features
+- **KVS Signaling Channel Integration**: Proper integration with Amazon Connect's Start Media Streaming block
+- **WebRTC Peer Connection Management**: Real-time media streaming over KVS signaling
+- **Inbound Call Processing**: Handles incoming customer calls only
+- **Interruption Detection**: Real-time detection and handling of customer interruptions
+- **AI-Powered Responses**: Nova Sonic provides intelligent customer service
+- **Comprehensive Call Logging**: Tracks all call activities with timestamps
+- **Customer Phone Number Tracking**: Correlates calls with customer phone numbers
+- **Amazon Connect ContactId Tracking**: Links calls to Amazon Connect contact identifiers
+- **KVS Stream ARN Correlation**: Links calls to Amazon Connect stream ARNs
+- **Nova Sonic Transcript Logging**: Captures all AI responses and interactions
+- **Automatic IAM Management**: Creates necessary roles and permissions programmatically
+- **Session Management**: Automatic cleanup of orphaned sessions
+- **Health Monitoring**: Built-in health checks and monitoring endpoints
 
 
 ### Setup
 
-#### Environment variables
+#### Environment Variables (Required for Fargate Deployment)
+The server automatically creates the necessary IAM role and permissions. For Fargate deployment, these environment variables are required:
 
-- `AWS_PROFILE` - AWS IAM config profile that has necessary permissions for Bedrock models
-- `AWS_REGION` - AWS region name
-- `TWILIO_ACCOUNT_SID` , `TWILIO_API_SID` & `TWILIO_API_SECRET` - Needed to configure Twilio SDK client
-- `TWILIO_FROM_NUMBER` - The Twilio phone number in E.164 format (Needed only for outbound calling demo)
-- `TWILIO_VERIFIED_CALLER_ID` - The destination number in E.164 format (Needed only for outbound calling demo). In Twilio trial /sandbox account, the destination number has to be a verified phone number
-- `SIP_ENDPOINT` - The Twilio SIP domain endpoint (Needed only if the call should be escalated to human agent)
+- `STREAM_ARN` - KVS stream ARN from Amazon Connect's Start Media Streaming block
+- `CONTACT_ID` - Amazon Connect Contact ID for call correlation
+- `CUSTOMER_PHONE_NUMBER` - Customer's phone number for logging
+- `AWS_REGION` - AWS region (defaults to "us-east-1")
 
 #### Build & Run
-- Clone the library and `cd` into it
-- Install the dependencies by running `npm install` 
-- Build the app by running `npm run build` 
-- Run the command `npm start` to start the webserver that interfaces with Amazon Nova Sonic via Bedrock. **Make sure all the environment variables are set before running this command. Refer to above section for required environment variables specific to the functionality**. 
-- In a different terminal, run `lt --port 3000`  to tunnel the app and <u>capture the public endpoint</u>. You could also use ngrok instead. The endpoint looks like `https://<random_domain>.loca.lt` 
 
-> **NOTE:** The use of ngrok or localtunnel is strictly for the demonstration purpose as we intend to run the sample locally and expose it to public internet. When running in production, the application is typically deployed on EC2/ECS/EKS and exposed to internet via an Application Load Balancer. However running the app behind load balancer itself doesn't make it immune to attacks. There should be additional measures like HTTP authentication and request signature validation to make sure the requests are indeed originated from Twilio. For production setup, please refer to Twilio's [secure communication](https://www.twilio.com/docs/usage/security) documentation. 
+1. **Install dependencies:**
+   ```bash
+   npm install
+   ```
 
-## Inbound call handling demo
+2. **Development mode:**
+   ```bash
+   npm run dev
+   ```
 
-In this section of demo, we'll be making a call to Twilio number and the call will be answered by Amazon Nova Sonic speech-to-speech model
+3. **Production mode:**
+   ```bash
+   npm run build
+   npm start
+   ```
 
-### Configure the incoming call webhook 
-In the active phone, go to the corresponding **Voice Configuration** tab and paste the url path webhook for incoming call. In our case, the uri is `incoming-call`, so the path will be `https://<random_domain>.loca.lt/incoming-call` .
+4. **Cleanup IAM resources:**
+   ```bash
+   npm run cleanup
+   ```
 
-![Incoming call webhook](img/tw_phone_incoming.jpg "Configure the webhook for the incoming call")
+#### Server Endpoints
 
-### Test 
- - Dial the phone number, it will play a welcome message and it connects to the websocket endpoint that connects to Amazon Nova Sonic model
- - All your speech will be handled and responded by Sonic
- - Say something like "I need to cancel my reservation" to invoke the tools 
+- **Health Check**: `http://localhost:3000/health`
+- **Call Logs**: `http://localhost:3000/call-logs`
 
+> **Note**: This server is designed to run as a Fargate task and connect to KVS signaling channels, not as a standalone WebSocket server.
 
-## Outbound calling demo
+#### Call Logging API
 
-In this section of demo, we'll be making outbound calls from a Twilio number to a destination phone number.
-When the call is connected, the application instructs Twilio to connect to media streams endpoint to let Amazon Nova Sonic process and answer the call audio.
+The server provides comprehensive call logging with the following endpoints:
 
-### Test
+- **All Active Calls**: `GET /call-logs`
+- **Specific Session**: `GET /call-logs?sessionId=<session-id>`
+- **Customer Calls**: `GET /call-logs?phoneNumber=<phone-number>`
+- **Contact Calls**: `GET /call-logs?contactId=<contact-id>`
 
-- Grab the public endpoint `https://<random_domain>.loca.lt` from the previous "Build & Run" section
-- Make sure the `TWILIO_FROM_NUMBER` and `TWILIO_VERIFIED_CALLER_ID` are set to correct phone numbers (E.164 format) before running the app
-- Trigger the outbound call using a curl command `curl https://<random_domain>.loca.lt/outbound-call` . The `/outbound-call` endpoint will initiate the call to the destination phone number and also connects to the websocket endpoint that interfaces with Sonic model.
+Each call log includes:
+- Customer phone number
+- Amazon Connect ContactId
+- KVS stream ARN
+- Call start/end times
+- Complete transcript log
+- All Nova Sonic responses
+- Interruption detection events
 
+> **Note**: For production deployment, deploy as a Fargate task that can be invoked by Lambda functions. This architecture ensures proper scaling and isolation for each call. 
 
-## (Optional) Call forwarding to an agent.
+## Amazon Connect Integration
 
-1. Create SIP user credentials to be connected to softphone
+### Architecture Overview
 
-![Create SIP credentials](img/tw_sip_user_creds.jpg "Create support agent credentials")
+The solution uses the following architecture:
+1. **Amazon Connect Contact Flow** → **Lambda Function** → **Fargate Task** → **KVS Signaling Channel** → **WebRTC Bridge** → **Nova Sonic**
 
-2. Create a SIP domain to forward the calls to a customer support agent. Make sure the user credentials are attached.
+### Setup Amazon Connect Contact Flow
 
-![Create SIP domain](img/tw_sip_domain_create.jpg "Create SIP domain")
+1. **Create a Contact Flow** in Amazon Connect that includes a "Start Media Streaming" block
+2. **Configure the Start Media Streaming block** to use KVS signaling channels
+3. **Add a Lambda Invoke block** after the Start Media Streaming block to invoke your Lambda function
+4. **Pass the Stream ARN, Contact ID, and Customer Phone Number** to the Lambda function
+5. **Deploy the contact flow** and assign it to your phone number
 
-3. Download a softphone like [Zoiper](https://www.zoiper.com/en/voip-softphone/download/current) and login using the SIP user credentials generated above 
+### Call Flow
 
-![Soft phone](img/zoiper.jpg "Customer support agent Soft phone")
+#### Inbound Call Processing
+1. Customer calls the Amazon Connect number
+2. Contact flow starts media streaming using KVS signaling channels
+3. Lambda function is invoked with Stream ARN, Contact ID, and Customer Phone Number
+4. Lambda starts a Fargate task with the WebRTC bridge (~30 seconds)
+5. **Lambda terminates** - Fargate task handles entire call duration independently
+6. Fargate task connects to KVS signaling channel using the Stream ARN
+7. WebRTC connection is established between Amazon Connect and the bridge
+8. Audio is streamed from Amazon Connect to Nova Sonic via the bridge
+9. Nova Sonic processes the audio and responds
+10. Response is sent back to Amazon Connect through the WebRTC connection
+11. All interactions are logged with customer phone number, Contact ID, and stream ARN
+12. **Fargate task runs until call ends** (handles calls of any duration)
 
-4. Set the environment variable `SIP_ENDPOINT` to the SIP user (E.g. \<username\>@\<domain\>.sip.twilio.com) and run `npm start` again
+> **Note**: This architecture handles long-running calls (>15 minutes) by using Lambda as a quick trigger and Fargate for the entire call duration. See [LONG_RUNNING_CALLS.md](LONG_RUNNING_CALLS.md) for details.
 
-5. While on the call, say something like "I need help with billing issues, connect me to an agent" to route the call to the agent. 
+#### Real-time Logging
+The system provides comprehensive logging for each call:
+- **Call Start**: Customer phone number, ContactId, stream ARN, session ID
+- **Audio Processing**: Inbound/outbound audio events
+- **Nova Sonic Responses**: Complete transcripts of AI responses
+- **Interruption Detection**: Customer interruption events
+- **Call End**: Final summary with duration and response count
 
+### Testing
 
-## Call Flow
+1. **Start the server**: `npm run dev`
+2. **Call your Amazon Connect number**
+3. **Monitor logs**: Check console output for detailed call tracking
+4. **View call logs**: Access `/call-logs` endpoint for call history
+5. **Test interruption**: Interrupt the AI while it's speaking to test detection
 
-### Inbound calling
+### Monitoring and Debugging
 
-#### Invoke webhook on a new incoming call
-All incoming calls in Twilio are routed to the webhook, which in our case, is `/incoming-call` and TwiML should be returned with our Websocket endpoint (which is `/media-stream` ) for Twilio media streams to connect to.
+Use the following endpoints to monitor your system:
 
-![Incoming call webhook](img/01-flow.jpg "Incoming call webhook")
+```bash
+# Health check
+curl http://localhost:3000/health
 
+# All active calls
+curl http://localhost:3000/call-logs
 
-#### Handling call audio using Nova Sonic
-Twilio programmable voice API connects to the websocket endpoint and streams the media (the call audio) to it.
-The application passes the audio to Nova Sonic speech-to-speech model via Bedrock's bidirectional API. This allows the incoming and outgoing audio to be exchanged asynchronously.
-When the Sonic model detects a tool use, the corresponding tool will be invoked and the tool result is passed back to the model.
+# Specific call session
+curl "http://localhost:3000/call-logs?sessionId=<session-id>"
 
-![Nova Sonic responding to Media streams](img/02-flow.jpg "Nova Sonic responding to Media streams")
+# Customer call history
+curl "http://localhost:3000/call-logs?phoneNumber=<phone-number>"
 
-
-#### Escalate the call to a customer support agent
-When the Sonic model detects "support" tool use, the current call leg is updated to dial a SIP endpoint.
-When an agent is connected to the endpoint using a softphone, that phone will ring.
-
-![Dialing a customer support agent](img/03-flow.jpg "App dialing a customer support agent when support tool is detected")
-
-### Outbound calling
-
-An outbound call needs a trigger to initiate the call from Twilio to a destination phone number. In this sample, the outbound call triggering is exposed via `/outbound-call` endpoint. It leverages Twilio SDK to initiate a call to the destination number and also connect to the media streams websocket endpoint (`/media-stream`). Rest of the call flow will be similar to that of the inbound flow.
-
-![Outbound call flow](img/01-outbound-flow.jpg "Triggering an outbound call and connecting to Amazon Nova Sonic via Twilio media streams endpoint")
+# Contact call history
+curl "http://localhost:3000/call-logs?contactId=<contact-id>"
+```

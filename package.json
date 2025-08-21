@@ -1,32 +1,38 @@
 {
-    "name": "@amazon/nova-sonic-twilio-integration",
+    "name": "@amazon/nova-sonic-connect-integration",
     "version": "1.0.0",
     "description": "",
     "type": "commonjs",
     "scripts": {
-      "build": "tsc",
-      "start": "node dist/server.js",
-      "cli": "ts-node src/index-cli.ts",
-      "dev": "ts-node src/server.ts"
+        "build": "tsc",
+        "start": "node dist/WebRTCBridgeServer.js",
+        "cli": "ts-node src/index-cli.ts",
+        "dev": "ts-node WebRTCBridgeServer.ts",
+        "cleanup": "ts-node WebRTCBridgeServer.ts --cleanup"
     },
     "keywords": [],
     "author": "",
     "license": "ISC",
     "dependencies": {
-      "@aws-sdk/client-bedrock-runtime": "^3.785",
-      "@aws-sdk/client-bedrock-agent-runtime": "^3.782",
-      "@aws-sdk/credential-providers": "^3.782",
-      "@smithy/node-http-handler": "^4.0.4",
-      "@smithy/types": "^4.1.0",
-      "@types/node": "^22.13.9",
-      "fastify": "^5.3.2",
-      "@fastify/formbody": "^8.0.2",
-      "@fastify/websocket": "^11.0.2",
-      "rxjs": "7.8.2",
-      "alawmulaw": "6.0.0",
-      "twilio": "5.5.2"
+        "@aws-sdk/client-bedrock-agent-runtime": "^3.782",
+        "@aws-sdk/client-bedrock-runtime": "^3.864.0",
+        "@aws-sdk/client-iam": "^3.782",
+        "@aws-sdk/client-sts": "^3.782",
+        "@aws-sdk/client-kinesis-video-signaling": "^3.782",
+        "@aws-sdk/client-kinesis-video": "^3.782",
+        "@aws-sdk/client-ecs": "^3.782",
+        "@aws-sdk/credential-providers": "^3.782",
+        "@fastify/formbody": "^8.0.2",
+        "@fastify/websocket": "^11.0.2",
+        "@smithy/node-http-handler": "^4.1.1",
+        "@smithy/types": "^4.1.0",
+        "@types/node": "^22.13.9",
+        "alawmulaw": "6.0.0",
+        "fastify": "^5.3.2",
+        "rxjs": "7.8.2",
+        "ws": "^8.14.2"
     },
     "devDependencies": {
-      "typescript": "5.8.2"
+        "typescript": "5.8.2"
     }
-  }
+}
