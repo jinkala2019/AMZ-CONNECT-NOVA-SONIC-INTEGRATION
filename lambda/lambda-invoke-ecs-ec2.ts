@@ -14,7 +14,7 @@
  * - Status of task creation
  */
 
-import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
+import { ECSClient, RunTaskCommand, DescribeTaskDefinitionCommand } from "@aws-sdk/client-ecs";
 
 const ecsClient = new ECSClient({ region: process.env.DEPLOYMENT_REGION || 'us-east-1' });
 
@@ -64,10 +64,25 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
             ]
         }];
 
+        // Get the latest task definition revision
+        const taskDefinitionFamily = 'nova-sonic-ec2-bridge';
+        const describeTaskDefCommand = new DescribeTaskDefinitionCommand({
+            taskDefinition: taskDefinitionFamily
+        });
+        
+        const taskDefResult = await ecsClient.send(describeTaskDefCommand);
+        const latestTaskDefinition = taskDefResult.taskDefinition?.taskDefinitionArn;
+        
+        if (!latestTaskDefinition) {
+            throw new Error(`No task definition found for family: ${taskDefinitionFamily}`);
+        }
+        
+        console.log('📋 Using task definition:', latestTaskDefinition);
+        
         // Create RunTask command for EC2 launch type
         const runTaskCommand = new RunTaskCommand({
             cluster: process.env.ECS_CLUSTER_NAME,
-            taskDefinition: process.env.ECS_TASK_DEFINITION,
+            taskDefinition: latestTaskDefinition,
             launchType: 'EC2',
             overrides: {
                 containerOverrides
@@ -76,7 +91,7 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
 
         console.log('📋 Starting ECS EC2 task for long-running call:', {
             cluster: process.env.ECS_CLUSTER_NAME,
-            taskDefinition: process.env.ECS_TASK_DEFINITION,
+            taskDefinition: latestTaskDefinition,
             streamARN: StreamARN,
             contactId: ContactId,
             customerPhoneNumber: CustomerPhoneNumber,

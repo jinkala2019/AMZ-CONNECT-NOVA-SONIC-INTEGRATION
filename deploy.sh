@@ -120,7 +120,7 @@ docker push $ECR_REPOSITORY_URI:latest
 
 # Step 7: Create task definition with correct image URI and role ARNs
 echo "📝 Creating task definition..."
-sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|$REGION|g" ecs-task-definition-ec2.json > task-definition-updated.json
+sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g" ecs-task-definition-ec2.json > task-definition-updated.json
 
 # Update role ARNs in the task definition
 echo "🔧 Updating role ARNs in task definition..."

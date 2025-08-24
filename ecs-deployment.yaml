@@ -144,6 +144,7 @@ Resources:
                   - iam:DeleteRolePolicy
                   - iam:TagRole
                   - iam:UntagRole
+                  - sts:AssumeRole
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -181,6 +182,7 @@ Resources:
                   - ecs:RunTask
                   - ecs:StopTask
                   - ecs:DescribeTasks
+                  - ecs:DescribeTaskDefinition
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -454,11 +456,10 @@ Resources:
           };
       Timeout: 60
       MemorySize: 256
-      Environment:
-        Variables:
-          ECS_CLUSTER_NAME: !Ref ECSClusterName
-          ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:latest
-          DEPLOYMENT_REGION: !Ref AWS::Region
+       Environment:
+         Variables:
+           ECS_CLUSTER_NAME: !Ref ECSClusterName
+           DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
         - Key: Name
           Value: Nova Sonic Lambda Function
