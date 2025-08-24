@@ -1,6 +1,6 @@
-# Deployment Guide: Amazon Connect to Nova Sonic WebRTC Bridge
+# Deployment Guide: Amazon Connect to Nova Sonic WebRTC Bridge (ECS EC2)
 
-This guide explains how to deploy the WebRTC bridge that connects Amazon Connect to Nova Sonic using KVS signaling channels.
+This guide explains how to deploy the WebRTC bridge that connects Amazon Connect to Nova Sonic using KVS signaling channels with ECS EC2 for better performance and control over long-running calls.
 
 ## Architecture Overview
 
@@ -8,8 +8,8 @@ This guide explains how to deploy the WebRTC bridge that connects Amazon Connect
 Amazon Connect Contact Flow
     ↓ (Start Media Streaming → KVS Signaling Channel)
 Lambda Function
-    ↓ (Invoke Fargate Task)
-Fargate Task (WebRTC Bridge)
+    ↓ (Invoke ECS EC2 Task)
+ECS EC2 Task (WebRTC Bridge)
     ↓ (Connect to KVS Signaling Channel)
 KVS Signaling Channel
     ↓ (WebRTC Connection)
@@ -29,9 +29,11 @@ Nova Sonic AI
    - Amazon Connect
    - Amazon Bedrock (with Nova Sonic access)
    - Amazon Kinesis Video Streams
-   - Amazon ECS (Fargate)
+   - Amazon ECS (EC2)
    - AWS Lambda
    - Amazon ECR (for container images)
+   - Amazon EC2 (for ECS instances)
+   - Auto Scaling Groups
 
 ## Step 1: Build and Package the Application
 
@@ -89,8 +91,8 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:lates
 ```json
 {
   "family": "nova-sonic-bridge",
-  "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "networkMode": "bridge",
+  "requiresCompatibilities": ["EC2"],
   "cpu": "1024",
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
@@ -102,6 +104,7 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:lates
       "portMappings": [
         {
           "containerPort": 3000,
+          "hostPort": 3000,
           "protocol": "tcp"
         }
       ],
@@ -116,7 +119,17 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:lates
           "awslogs-stream-prefix": "ecs"
         }
       },
-      "essential": true
+      "essential": true,
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:3000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      }
     }
   ]
 }
@@ -124,12 +137,24 @@ docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:lates
 
 ### 2.2 Create Task Definition
 ```bash
-aws ecs register-task-definition --cli-input-json file://task-definition.json
+aws ecs register-task-definition --cli-input-json file://ecs-task-definition-ec2.json
 ```
 
-## Step 3: Create Required IAM Roles
+## Step 3: Deploy ECS EC2 Infrastructure
 
-### 3.1 ECS Task Execution Role
+### 3.1 Deploy CloudFormation Stack
+```bash
+# Deploy the ECS EC2 infrastructure
+aws cloudformation deploy \
+    --template-file ecs-ec2-deployment.yaml \
+    --stack-name nova-sonic-ecs-stack \
+    --capabilities CAPABILITY_NAMED_IAM \
+    --region us-east-1
+```
+
+## Step 4: Create Required IAM Roles
+
+### 4.1 ECS Task Execution Role
 ```json
 {
   "Version": "2012-10-17",
@@ -157,7 +182,7 @@ aws ecs register-task-definition --cli-input-json file://task-definition.json
 }
 ```
 
-### 3.2 ECS Task Role (for Nova Sonic Bridge)
+### 4.2 ECS Task Role (for Nova Sonic Bridge)
 ```json
 {
   "Version": "2012-10-17",
@@ -195,7 +220,7 @@ aws ecs register-task-definition --cli-input-json file://task-definition.json
 }
 ```
 
-### 3.3 Lambda Execution Role
+### 4.3 Lambda Execution Role
 ```json
 {
   "Version": "2012-10-17",
@@ -223,9 +248,9 @@ aws ecs register-task-definition --cli-input-json file://task-definition.json
 }
 ```
 
-## Step 4: Deploy Lambda Function
+## Step 5: Deploy Lambda Function
 
-### 4.1 Package Lambda Function
+### 5.1 Package Lambda Function
 ```bash
 # Install dependencies for Lambda
 cd lambda
@@ -236,13 +261,13 @@ npm run build
 zip -r lambda-deployment.zip dist/ node_modules/ package.json
 ```
 
-### 4.2 Deploy Lambda
+### 5.2 Deploy Lambda
 ```bash
 aws lambda create-function \
   --function-name invoke-fargate-task \
   --runtime nodejs18.x \
   --role arn:aws:iam::<account-id>:role/lambda-execution-role \
-  --handler dist/lambda-invoke-fargate.handler \
+  --handler dist/lambda-invoke-ecs-ec2.handler \
   --zip-file fileb://lambda-deployment.zip \
   --timeout 60 \
   --memory-size 256 \
@@ -254,17 +279,17 @@ aws lambda create-function \
   }'
 ```
 
-> **Note**: Lambda timeout is set to 60 seconds (enough for Fargate task startup). The Lambda terminates after starting the Fargate task, which handles the entire call duration independently. This solves the 15-minute Lambda timeout limitation for long-running calls.
+> **Note**: Lambda timeout is set to 60 seconds (enough for ECS EC2 task startup). The Lambda terminates after starting the ECS EC2 task, which handles the entire call duration independently. This solves the 15-minute Lambda timeout limitation for long-running calls.
 
-## Step 5: Create ECS Cluster
+## Step 6: Create ECS Cluster
 
 ```bash
-aws ecs create-cluster --cluster-name nova-sonic-cluster
+aws ecs create-cluster --cluster-name nova-sonic-ecs-cluster
 ```
 
-## Step 6: Configure Amazon Connect Contact Flow
+## Step 7: Configure Amazon Connect Contact Flow
 
-### 6.1 Contact Flow Blocks
+### 7.1 Contact Flow Blocks
 
 1. **Start Media Streaming Block**
    - Stream Type: Real-time
@@ -287,14 +312,14 @@ aws ecs create-cluster --cluster-name nova-sonic-cluster
      }
      ```
 
-### 6.2 Deploy Contact Flow
+### 7.2 Deploy Contact Flow
 1. Save the contact flow
 2. Publish the contact flow
 3. Assign to your phone number
 
-## Step 7: Testing the Deployment
+## Step 8: Testing the Deployment
 
-### 7.1 Test Lambda Function
+### 8.1 Test Lambda Function
 ```bash
 aws lambda invoke \
   --function-name invoke-fargate-task \
@@ -306,55 +331,55 @@ aws lambda invoke \
   response.json
 ```
 
-### 7.2 Monitor Fargate Tasks
+### 8.2 Monitor ECS EC2 Tasks
 ```bash
 # List running tasks
-aws ecs list-tasks --cluster nova-sonic-cluster
+aws ecs list-tasks --cluster nova-sonic-ecs-cluster
 
 # Describe specific task
-aws ecs describe-tasks --cluster nova-sonic-cluster --tasks <task-arn>
+aws ecs describe-tasks --cluster nova-sonic-ecs-cluster --tasks <task-arn>
 
 # View task logs
 aws logs tail /ecs/nova-sonic-bridge --follow
 ```
 
-### 7.3 Test End-to-End
+### 8.3 Test End-to-End
 1. Call your Amazon Connect number
-2. Monitor Lambda logs: `aws logs tail /aws/lambda/invoke-fargate-task --follow`
-3. Monitor Fargate task logs: `aws logs tail /ecs/nova-sonic-bridge --follow`
+2. Monitor Lambda logs: `aws logs tail /aws/lambda/invoke-ecs-ec2-task --follow`
+3. Monitor ECS EC2 task logs: `aws logs tail /ecs/nova-sonic-bridge --follow`
 4. Check health endpoint: `curl http://<task-ip>:3000/health`
 
-## Step 8: Monitoring and Troubleshooting
+## Step 9: Monitoring and Troubleshooting
 
-### 8.1 CloudWatch Logs
-- Lambda logs: `/aws/lambda/invoke-fargate-task`
-- Fargate logs: `/ecs/nova-sonic-bridge`
+### 9.1 CloudWatch Logs
+- Lambda logs: `/aws/lambda/invoke-ecs-ec2-task`
+- ECS EC2 logs: `/ecs/nova-sonic-bridge`
 
-### 8.2 Key Metrics to Monitor
+### 9.2 Key Metrics to Monitor
 - Lambda invocation count and duration
 - ECS task count and CPU/memory usage
 - KVS stream metrics
 - Nova Sonic API calls
 
-### 8.3 Common Issues
+### 9.3 Common Issues
 1. **Task fails to start**: Check ECS task role permissions
 2. **KVS connection fails**: Verify Stream ARN and KVS permissions
 3. **Nova Sonic errors**: Check Bedrock access and model availability
 4. **Network issues**: Verify subnet and security group configuration
 
-## Step 9: Scaling and Optimization
+## Step 10: Scaling and Optimization
 
-### 9.1 Auto Scaling
+### 10.1 Auto Scaling
 - Configure ECS service auto-scaling based on CPU/memory usage
 - Set up Lambda concurrency limits
 - Monitor and adjust task definition resources
 
-### 9.2 Cost Optimization
+### 10.2 Cost Optimization
 - Use Spot instances for non-critical workloads
 - Monitor and optimize task resource allocation
 - Set up CloudWatch alarms for cost monitoring
 
-## Security Considerations
+## Step 11: Security Considerations
 
 1. **Network Security**
    - Use private subnets for Fargate tasks
@@ -371,15 +396,15 @@ aws logs tail /ecs/nova-sonic-bridge --follow
    - Use AWS KMS for sensitive data
    - Implement proper logging and monitoring
 
-## Cleanup
+## Step 12: Cleanup
 
 To remove all resources:
 ```bash
 # Delete Lambda function
-aws lambda delete-function --function-name invoke-fargate-task
+aws lambda delete-function --function-name invoke-ecs-ec2-task
 
 # Delete ECS cluster
-aws ecs delete-cluster --cluster nova-sonic-cluster
+aws ecs delete-cluster --cluster nova-sonic-ecs-cluster
 
 # Delete ECR repository
 aws ecr delete-repository --repository-name nova-sonic-bridge --force
@@ -389,6 +414,6 @@ aws iam delete-role --role-name nova-sonic-bridge-task-role
 aws iam delete-role --role-name lambda-execution-role
 
 # Delete CloudWatch log groups
-aws logs delete-log-group --log-group-name /aws/lambda/invoke-fargate-task
+aws logs delete-log-group --log-group-name /aws/lambda/invoke-ecs-ec2-task
 aws logs delete-log-group --log-group-name /ecs/nova-sonic-bridge
 ```

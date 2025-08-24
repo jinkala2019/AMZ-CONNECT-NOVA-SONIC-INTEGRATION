@@ -1,0 +1,76 @@
+{
+  "family": "nova-sonic-bridge",
+  "networkMode": "bridge",
+  "requiresCompatibilities": ["EC2"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-bridge-task-role",
+  "containerDefinitions": [
+    {
+      "name": "nova-sonic-bridge",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest",
+      "portMappings": [
+        {
+          "containerPort": 3000,
+          "hostPort": 3000,
+          "protocol": "tcp"
+        }
+      ],
+      "environment": [
+        { "name": "AWS_REGION", "value": "us-east-1" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/nova-sonic-bridge",
+          "awslogs-region": "us-east-1",
+          "awslogs-stream-prefix": "ecs"
+        }
+      },
+      "essential": true,
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:3000/health || exit 1"
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 60
+      },
+      "ulimits": [
+        {
+          "name": "nofile",
+          "softLimit": 65536,
+          "hardLimit": 65536
+        }
+      ],
+      "mountPoints": [],
+      "volumesFrom": [],
+      "dependsOn": [],
+      "secrets": [],
+      "dockerLabels": {
+        "com.amazonaws.ecs.cluster": "nova-sonic-ecs-cluster",
+        "com.amazonaws.ecs.container-name": "nova-sonic-bridge",
+        "com.amazonaws.ecs.task-definition-family": "nova-sonic-bridge"
+      }
+    }
+  ],
+  "placementConstraints": [],
+  "volumes": [],
+  "tags": [
+    {
+      "key": "Environment",
+      "value": "Production"
+    },
+    {
+      "key": "Purpose",
+      "value": "WebRTC Bridge for Amazon Connect to Nova Sonic"
+    },
+    {
+      "key": "Service",
+      "value": "nova-sonic-bridge"
+    }
+  ]
+}

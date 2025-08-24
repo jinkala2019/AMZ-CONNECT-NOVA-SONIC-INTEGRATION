@@ -8,7 +8,9 @@
         "start": "node dist/WebRTCBridgeServer.js",
         "cli": "ts-node src/index-cli.ts",
         "dev": "ts-node WebRTCBridgeServer.ts",
-        "cleanup": "ts-node WebRTCBridgeServer.ts --cleanup"
+        "cleanup": "ts-node WebRTCBridgeServer.ts --cleanup",
+        "deploy:ec2": "chmod +x deploy-ecs-ec2.sh && ./deploy-ecs-ec2.sh",
+        "build:lambda": "cd lambda && npm install && npm run build"
     },
     "keywords": [],
     "author": "",

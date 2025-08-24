@@ -1,6 +1,6 @@
-# Amazon Connect to Nova Sonic WebRTC Bridge Server
+# Amazon Connect to Nova Sonic WebRTC Bridge Server (ECS EC2)
 
-A real-time audio bridge that connects Amazon Connect contact center calls to Amazon Nova Sonic's AI-powered speech processing using KVS (Kinesis Video Streams) signaling channels and WebRTC technology for intelligent customer service interactions with comprehensive call logging and transcript tracking.
+A real-time audio bridge that connects Amazon Connect contact center calls to Amazon Nova Sonic's AI-powered speech processing using KVS (Kinesis Video Streams) signaling channels and WebRTC technology for intelligent customer service interactions with comprehensive call logging and transcript tracking. This deployment uses ECS with EC2 instances for better performance and control over long-running calls.
 
 ## Getting started
 
@@ -16,7 +16,7 @@ A real-time audio bridge that connects Amazon Connect contact center calls to Am
 1. Set up an Amazon Connect instance
 2. Configure a contact flow with "Start Media Streaming" block that uses KVS signaling channels
 3. Ensure your AWS account has access to Amazon Bedrock, Nova Sonic, and KVS
-4. Deploy the WebRTC bridge as a Fargate task that can be invoked by Lambda
+4. Deploy the WebRTC bridge as an ECS EC2 task that can be invoked by Lambda
 
 ### Features
 - **KVS Signaling Channel Integration**: Proper integration with Amazon Connect's Start Media Streaming block
@@ -36,8 +36,8 @@ A real-time audio bridge that connects Amazon Connect contact center calls to Am
 
 ### Setup
 
-#### Environment Variables (Required for Fargate Deployment)
-The server automatically creates the necessary IAM role and permissions. For Fargate deployment, these environment variables are required:
+#### Environment Variables (Required for ECS EC2 Deployment)
+The server automatically creates the necessary IAM role and permissions. For ECS EC2 deployment, these environment variables are required:
 
 - `STREAM_ARN` - KVS stream ARN from Amazon Connect's Start Media Streaming block
 - `CONTACT_ID` - Amazon Connect Contact ID for call correlation
@@ -72,7 +72,7 @@ The server automatically creates the necessary IAM role and permissions. For Far
 - **Health Check**: `http://localhost:3000/health`
 - **Call Logs**: `http://localhost:3000/call-logs`
 
-> **Note**: This server is designed to run as a Fargate task and connect to KVS signaling channels, not as a standalone WebSocket server.
+> **Note**: This server is designed to run as an ECS EC2 task and connect to KVS signaling channels, not as a standalone WebSocket server.
 
 #### Call Logging API
 
@@ -92,14 +92,14 @@ Each call log includes:
 - All Nova Sonic responses
 - Interruption detection events
 
-> **Note**: For production deployment, deploy as a Fargate task that can be invoked by Lambda functions. This architecture ensures proper scaling and isolation for each call. 
+> **Note**: For production deployment, deploy as an ECS EC2 task that can be invoked by Lambda functions. This architecture ensures proper scaling and isolation for each call, with better performance and control over long-running calls. 
 
 ## Amazon Connect Integration
 
 ### Architecture Overview
 
 The solution uses the following architecture:
-1. **Amazon Connect Contact Flow** → **Lambda Function** → **Fargate Task** → **KVS Signaling Channel** → **WebRTC Bridge** → **Nova Sonic**
+1. **Amazon Connect Contact Flow** → **Lambda Function** → **ECS EC2 Task** → **KVS Signaling Channel** → **WebRTC Bridge** → **Nova Sonic**
 
 ### Setup Amazon Connect Contact Flow
 
@@ -115,17 +115,17 @@ The solution uses the following architecture:
 1. Customer calls the Amazon Connect number
 2. Contact flow starts media streaming using KVS signaling channels
 3. Lambda function is invoked with Stream ARN, Contact ID, and Customer Phone Number
-4. Lambda starts a Fargate task with the WebRTC bridge (~30 seconds)
-5. **Lambda terminates** - Fargate task handles entire call duration independently
-6. Fargate task connects to KVS signaling channel using the Stream ARN
+4. Lambda starts an ECS EC2 task with the WebRTC bridge (~30 seconds)
+5. **Lambda terminates** - ECS EC2 task handles entire call duration independently
+6. ECS EC2 task connects to KVS signaling channel using the Stream ARN
 7. WebRTC connection is established between Amazon Connect and the bridge
 8. Audio is streamed from Amazon Connect to Nova Sonic via the bridge
 9. Nova Sonic processes the audio and responds
 10. Response is sent back to Amazon Connect through the WebRTC connection
 11. All interactions are logged with customer phone number, Contact ID, and stream ARN
-12. **Fargate task runs until call ends** (handles calls of any duration)
+12. **ECS EC2 task runs until call ends** (handles calls of any duration)
 
-> **Note**: This architecture handles long-running calls (>15 minutes) by using Lambda as a quick trigger and Fargate for the entire call duration. See [LONG_RUNNING_CALLS.md](LONG_RUNNING_CALLS.md) for details.
+> **Note**: This architecture handles long-running calls (>15 minutes) by using Lambda as a quick trigger and ECS EC2 for the entire call duration. This provides better performance and control compared to Fargate. See [LONG_RUNNING_CALLS.md](LONG_RUNNING_CALLS.md) for details.
 
 #### Real-time Logging
 The system provides comprehensive logging for each call:

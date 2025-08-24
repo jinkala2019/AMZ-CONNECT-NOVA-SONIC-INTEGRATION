@@ -1,0 +1,18 @@
+{
+  "name": "nova-sonic-lambda",
+  "version": "1.0.0",
+  "description": "Lambda function to invoke ECS EC2 tasks for Nova Sonic WebRTC Bridge",
+  "main": "dist/lambda-invoke-ecs-ec2.js",
+  "scripts": {
+    "build": "tsc",
+    "clean": "rm -rf dist",
+    "package": "npm run build && zip -r lambda-deployment.zip dist/ node_modules/ package.json"
+  },
+  "dependencies": {
+    "@aws-sdk/client-ecs": "^3.872.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.9",
+    "typescript": "5.8.2"
+  }
+}
