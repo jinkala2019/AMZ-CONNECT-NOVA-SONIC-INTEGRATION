@@ -51,9 +51,9 @@
       "dependsOn": [],
       "secrets": [],
       "dockerLabels": {
-        "com.amazonaws.ecs.cluster": "nova-sonic-ecs-cluster",
-        "com.amazonaws.ecs.container-name": "nova-sonic-ec2-bridge",
-        "com.amazonaws.ecs.task-definition-family": "nova-sonic-ec2-bridge"
+        "com.nova-sonic.service": "webrtc-bridge",
+        "com.nova-sonic.environment": "production",
+        "com.nova-sonic.version": "1.0.0"
       }
     }
   ],
