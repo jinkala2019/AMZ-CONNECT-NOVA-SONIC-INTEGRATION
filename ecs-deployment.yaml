@@ -49,6 +49,11 @@ Parameters:
     Default: nova-sonic-ecs-cluster
     Description: Name of the ECS cluster
 
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+    Description: Latest Amazon ECS-Optimized AMI ID
+
 Resources:
   # ECR Repository
   ECRRepository:
@@ -85,7 +90,7 @@ Resources:
   ECSTaskExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-ecs-task-execution-role
+      RoleName: !Sub "${AWS::StackName}-ecs-task-execution-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -105,7 +110,7 @@ Resources:
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-nova-sonic-bridge-task-role
+      RoleName: !Sub "${AWS::StackName}-nova-sonic-bridge-task-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -154,7 +159,7 @@ Resources:
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-lambda-execution-role
+      RoleName: !Sub "${AWS::StackName}-lambda-execution-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -191,7 +196,7 @@ Resources:
   ECSInstanceRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-ecs-instance-role
+      RoleName: !Sub "${AWS::StackName}-ecs-instance-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -242,7 +247,7 @@ Resources:
   ECSInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     Properties:
-      InstanceProfileName: !Sub "${AWS::StackName}-ecs-instance-profile
+      InstanceProfileName: !Sub "${AWS::StackName}-ecs-instance-profile"
       Roles:
         - !Ref ECSInstanceRole
 
@@ -266,7 +271,7 @@ Resources:
   ECSCapacityProvider:
     Type: AWS::ECS::CapacityProvider
     Properties:
-      Name: !Sub "${AWS::StackName}-capacity-provider
+      Name: !Sub "${AWS::StackName}-capacity-provider"
       AutoScalingGroupProvider:
         AutoScalingGroupArn: !Ref AutoScalingGroup
         ManagedScaling:
@@ -276,16 +281,11 @@ Resources:
           TargetCapacity: 100
         ManagedTerminationProtection: DISABLED
 
-  # Latest Amazon ECS-Optimized AMI
-  LatestAmiId:
-    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
-    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
-
   # Launch Template for EC2 instances
   LaunchTemplate:
     Type: AWS::EC2::LaunchTemplate
     Properties:
-      LaunchTemplateName: !Sub "${AWS::StackName}-launch-template
+      LaunchTemplateName: !Sub "${AWS::StackName}-launch-template"
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
         InstanceType: !Ref InstanceType
@@ -324,7 +324,7 @@ Resources:
   ECSSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
-      GroupName: !Sub "${AWS::StackName}-ecs-sg
+      GroupName: !Sub "${AWS::StackName}-ecs-sg"
       GroupDescription: Security group for Nova Sonic ECS instances
       VpcId: !Ref VpcId
       SecurityGroupIngress:
@@ -357,7 +357,7 @@ Resources:
   AutoScalingGroup:
     Type: AWS::AutoScaling::AutoScalingGroup
     Properties:
-      AutoScalingGroupName: !Sub "${AWS::StackName}-asg
+      AutoScalingGroupName: !Sub "${AWS::StackName}-asg"
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
@@ -383,7 +383,7 @@ Resources:
     Type: AWS::AutoScaling::ScalingPolicy
     Properties:
       AutoScalingGroupName: !Ref AutoScalingGroup
-      PolicyName: !Sub "${AWS::StackName}-scaling-policy
+      PolicyName: !Sub "${AWS::StackName}-scaling-policy"
       PolicyType: TargetTrackingScaling
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
