@@ -105,7 +105,10 @@ echo "ECR Repository URI: $ECR_REPOSITORY_URI"
 echo "ECS Cluster Name: $ECS_CLUSTER_NAME"
 echo "Lambda Function Name: $LAMBDA_FUNCTION_NAME"
 
-# Step 6: Build and push Docker image
+# Step 6: Build the project and Docker image
+echo "🔨 Building the project..."
+npm run build
+
 echo "🐳 Building and pushing Docker image..."
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 

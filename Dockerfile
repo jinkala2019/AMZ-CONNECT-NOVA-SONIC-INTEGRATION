@@ -13,12 +13,18 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production && npm cache clean --force
+# Install all dependencies (including dev dependencies for build)
+RUN npm ci && npm cache clean --force
 
 # Copy source code
-COPY dist/ ./dist/
-COPY WebRTCBridgeServer.js ./
+COPY . .
+
+# Build the application
+RUN npm run build
+
+# Remove source files and dev dependencies to reduce image size
+RUN rm -rf src/ *.ts tsconfig.json
+RUN npm prune --production
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && \
@@ -38,4 +44,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
   CMD curl -f http://localhost:3000/health || exit 1
 
 # Start the application
-CMD ["node", "WebRTCBridgeServer.js"]
+CMD ["node", "dist/WebRTCBridgeServer.js"]
