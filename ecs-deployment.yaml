@@ -387,7 +387,7 @@ Resources:
       PolicyType: TargetTrackingScaling
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
-          PredefinedMetricType: ECSServiceAverageCPUUtilization
+          PredefinedMetricType: ASGAverageCPUUtilization
         TargetValue: 70.0
 
   # CloudWatch Log Group for ECS
