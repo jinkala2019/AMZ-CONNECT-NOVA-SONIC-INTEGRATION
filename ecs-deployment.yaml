@@ -305,10 +305,7 @@ Resources:
             systemctl enable amazon-ssm-agent
             systemctl start amazon-ssm-agent
             
-            # Install ECS agent
-            yum install -y ecs-init
-            
-            # Configure ECS
+            # Configure ECS (ECS agent is already installed on ECS-optimized AMI)
             mkdir -p /etc/ecs
             cat > /etc/ecs/ecs.config << EOF
             ECS_CLUSTER=${ECSClusterName}
@@ -318,11 +315,10 @@ Resources:
             ECS_LOGLEVEL=debug
             EOF
             
-            # Start ECS service
-            systemctl enable ecs
-            systemctl start ecs
+            # Restart ECS service to pick up new configuration
+            systemctl restart ecs
             
-            echo "ECS and SSM agents started successfully"
+            echo "SSM agent installed and ECS configured successfully"
         IamInstanceProfile:
           Name: !Ref ECSInstanceProfile
         BlockDeviceMappings:
