@@ -27,17 +27,51 @@ npm install
 npm run build
 cd ..
 
-# Step 3: Get VPC and subnet information
+# Step 3: Get VPC and subnet information with better error handling
 echo "🌐 Getting VPC and subnet information..."
-VPC_ID=$(aws ec2 describe-vpcs --filters "Name=is-default,Values=true" --query 'Vpcs[0].VpcId' --output text)
+
+# Try to get default VPC first
+VPC_ID=$(aws ec2 describe-vpcs --filters "Name=is-default,Values=true" --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "")
+
+# If no default VPC, get the first available VPC
+if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+    echo "No default VPC found, getting first available VPC..."
+    VPC_ID=$(aws ec2 describe-vpcs --query 'Vpcs[0].VpcId' --output text 2>/dev/null || echo "")
+fi
+
+if [ -z "$VPC_ID" ] || [ "$VPC_ID" = "None" ]; then
+    echo "❌ Error: No VPC found. Please create a VPC first or specify one manually."
+    echo "You can create a VPC using:"
+    echo "aws ec2 create-vpc --cidr-block 10.0.0.0/16 --region $REGION"
+    exit 1
+fi
+
 echo "VPC ID: $VPC_ID"
 
-# Get public subnets
-PUBLIC_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=true" --query 'Subnets[*].SubnetId' --output text | tr '\t' ',')
-echo "Public Subnets: $PUBLIC_SUBNETS"
+# Get all subnets in the VPC
+echo "Getting subnets in VPC $VPC_ID..."
+ALL_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" --query 'Subnets[*].SubnetId' --output text 2>/dev/null || echo "")
 
-# Get private subnets
-PRIVATE_SUBNETS=$(aws ec2 describe-subnets --filters "Name=vpc-id,Values=$VPC_ID" "Name=map-public-ip-on-launch,Values=false" --query 'Subnets[*].SubnetId' --output text | tr '\t' ',')
+if [ -z "$ALL_SUBNETS" ]; then
+    echo "❌ Error: No subnets found in VPC $VPC_ID. Please create subnets first."
+    echo "You can create subnets using:"
+    echo "aws ec2 create-subnet --vpc-id $VPC_ID --cidr-block 10.0.1.0/24 --availability-zone ${REGION}a"
+    exit 1
+fi
+
+# Convert to array and get first two subnets (or use all if less than 2)
+SUBNET_ARRAY=($ALL_SUBNETS)
+if [ ${#SUBNET_ARRAY[@]} -lt 2 ]; then
+    echo "⚠️  Warning: Only ${#SUBNET_ARRAY[@]} subnet(s) found. Using the same subnet for both public and private."
+    PUBLIC_SUBNETS="${SUBNET_ARRAY[0]}"
+    PRIVATE_SUBNETS="${SUBNET_ARRAY[0]}"
+else
+    # Use first subnet as public, second as private
+    PUBLIC_SUBNETS="${SUBNET_ARRAY[0]}"
+    PRIVATE_SUBNETS="${SUBNET_ARRAY[1]}"
+fi
+
+echo "Public Subnets: $PUBLIC_SUBNETS"
 echo "Private Subnets: $PRIVATE_SUBNETS"
 
 # Step 4: Deploy complete CloudFormation stack
@@ -105,45 +139,21 @@ aws lambda update-function-code \
 
 cd ..
 
-# Step 10: Clean up temporary files
+# Step 10: Cleanup temporary files
 echo "🧹 Cleaning up temporary files..."
 rm -f task-definition-updated.json
 rm -f lambda/lambda-deployment.zip
 
-# Step 11: Display deployment summary
+echo "✅ Deployment completed successfully!"
 echo ""
-echo "✅ Complete ECS EC2 deployment completed successfully!"
+echo "📋 Summary:"
+echo "  - Stack Name: $STACK_NAME"
+echo "  - ECS Cluster: $ECS_CLUSTER_NAME"
+echo "  - Lambda Function: $LAMBDA_FUNCTION_NAME"
+echo "  - ECR Repository: $ECR_REPOSITORY_URI"
+echo "  - Task Definition: $TASK_DEFINITION_ARN"
 echo ""
-echo "📊 Deployment Summary:"
-echo "======================"
-echo "ECS Cluster Name: $ECS_CLUSTER_NAME"
-echo "Task Definition ARN: $TASK_DEFINITION_ARN"
-echo "Lambda Function: $LAMBDA_FUNCTION_NAME"
-echo "ECR Repository: $ECR_REPOSITORY_URI"
-echo "CloudFormation Stack: $STACK_NAME"
-echo ""
-echo "🔗 Useful Commands:"
-echo "==================="
-echo "View ECS cluster: aws ecs describe-clusters --clusters $ECS_CLUSTER_NAME --region $REGION"
-echo "List ECS tasks: aws ecs list-tasks --cluster $ECS_CLUSTER_NAME --region $REGION"
-echo "View Lambda logs: aws logs tail /aws/lambda/$LAMBDA_FUNCTION_NAME --follow --region $REGION"
-echo "View ECS logs: aws logs tail /ecs/nova-sonic-bridge --follow --region $REGION"
-echo "Test Lambda: aws lambda invoke --function-name $LAMBDA_FUNCTION_NAME --payload '{\"StreamARN\":\"test\",\"ContactId\":\"test\",\"CustomerPhoneNumber\":\"test\"}' response.json --region $REGION"
-echo ""
-echo "🚀 Next Steps:"
-echo "=============="
-echo "1. Configure Amazon Connect contact flow to invoke the Lambda function:"
-echo "   Function ARN: arn:aws:lambda:$REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION_NAME"
-echo "2. Test the deployment by making a call to your Amazon Connect number"
-echo "3. Monitor the logs for any issues"
-echo "4. Scale the Auto Scaling Group as needed"
-echo ""
-echo "📝 Amazon Connect Contact Flow Configuration:"
-echo "============================================="
-echo "Lambda Function ARN: arn:aws:lambda:$REGION:$ACCOUNT_ID:function:$LAMBDA_FUNCTION_NAME"
-echo "Input Parameters:"
-echo "  {"
-echo "    \"StreamARN\": \"\${MediaStreaming.StreamARN}\","
-echo "    \"ContactId\": \"\${ContactData.ContactId}\","
-echo "    \"CustomerPhoneNumber\": \"\${ContactData.CustomerEndpoint.Address}\""
-echo "  }"
+echo "🔗 Next steps:"
+echo "  1. Configure Amazon Connect to invoke the Lambda function"
+echo "  2. Test the integration with a phone call"
+echo "  3. Monitor logs in CloudWatch"
