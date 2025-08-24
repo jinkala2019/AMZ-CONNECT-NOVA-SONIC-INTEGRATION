@@ -142,6 +142,8 @@ Resources:
                   - iam:PutRolePolicy
                   - iam:DeleteRole
                   - iam:DeleteRolePolicy
+                  - iam:TagRole
+                  - iam:UntagRole
                 Resource: '*'
               - Effect: Allow
                 Action:
@@ -455,7 +457,7 @@ Resources:
       Environment:
         Variables:
           ECS_CLUSTER_NAME: !Ref ECSClusterName
-          ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:1
+          ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:latest
           DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
         - Key: Name

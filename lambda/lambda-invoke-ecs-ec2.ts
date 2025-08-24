@@ -59,7 +59,7 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
                 { name: 'STREAM_ARN', value: StreamARN },
                 { name: 'CONTACT_ID', value: ContactId },
                 { name: 'CUSTOMER_PHONE_NUMBER', value: CustomerPhoneNumber },
-                { name: 'AWS_REGION', value: process.env.DEPLOYMENT_REGION || 'us-east-1' },
+                { name: 'DEPLOYMENT_REGION', value: process.env.DEPLOYMENT_REGION || 'us-east-1' },
                 { name: 'CALL_START_TIME', value: new Date().toISOString() }
             ]
         }];
