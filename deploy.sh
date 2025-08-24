@@ -104,6 +104,8 @@ ECSTaskRoleArn=$(aws cloudformation describe-stacks --stack-name $STACK_NAME --r
 echo "ECR Repository URI: $ECR_REPOSITORY_URI"
 echo "ECS Cluster Name: $ECS_CLUSTER_NAME"
 echo "Lambda Function Name: $LAMBDA_FUNCTION_NAME"
+echo "ECS Task Execution Role ARN: $ECSTaskExecutionRoleArn"
+echo "ECS Task Role ARN: $ECSTaskRoleArn"
 
 # Step 6: Build the project and Docker image
 echo "🔨 Building the project..."
@@ -116,9 +118,14 @@ docker build -t nova-sonic-ec2-bridge .
 docker tag nova-sonic-ec2-bridge:latest $ECR_REPOSITORY_URI:latest
 docker push $ECR_REPOSITORY_URI:latest
 
-# Step 7: Create task definition with correct image URI
+# Step 7: Create task definition with correct image URI and role ARNs
 echo "📝 Creating task definition..."
 sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|$REGION|g" ecs-task-definition-ec2.json > task-definition-updated.json
+
+# Update role ARNs in the task definition
+echo "🔧 Updating role ARNs in task definition..."
+sed -i "s|nova-sonic-ecs-stack-ecs-task-execution-role|$(basename $ECSTaskExecutionRoleArn)|g" task-definition-updated.json
+sed -i "s|nova-sonic-ecs-stack-nova-sonic-ec2-bridge-task-role|$(basename $ECSTaskRoleArn)|g" task-definition-updated.json
 
 # Step 8: Register task definition
 echo "📋 Registering ECS task definition..."
@@ -133,6 +140,14 @@ echo "Task Definition ARN: $TASK_DEFINITION_ARN"
 # Step 9: Update Lambda function with actual code
 echo "🔧 Updating Lambda function with actual code..."
 cd lambda
+
+# Build TypeScript code
+echo "🔨 Building Lambda TypeScript code..."
+npm install
+npm run build
+
+# Create deployment package
+echo "📦 Creating Lambda deployment package..."
 zip -r lambda-deployment.zip dist/ node_modules/ package.json
 
 aws lambda update-function-code \
