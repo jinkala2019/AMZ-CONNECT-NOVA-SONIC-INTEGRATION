@@ -124,8 +124,22 @@ sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR
 
 # Update role ARNs in the task definition
 echo "🔧 Updating role ARNs in task definition..."
-sed -i "s|nova-sonic-ecs-stack-ecs-task-execution-role|$(basename $ECSTaskExecutionRoleArn)|g" task-definition-updated.json
-sed -i "s|nova-sonic-ecs-stack-nova-sonic-ec2-bridge-task-role|$(basename $ECSTaskRoleArn)|g" task-definition-updated.json
+echo "Original Task Execution Role ARN: $ECSTaskExecutionRoleArn"
+echo "Original Task Role ARN: $ECSTaskRoleArn"
+
+# Extract role names from ARNs (remove everything before the last '/')
+TASK_EXECUTION_ROLE_NAME=$(echo $ECSTaskExecutionRoleArn | sed 's/.*\///')
+TASK_ROLE_NAME=$(echo $ECSTaskRoleArn | sed 's/.*\///')
+
+echo "Task Execution Role Name: $TASK_EXECUTION_ROLE_NAME"
+echo "Task Role Name: $TASK_ROLE_NAME"
+
+sed -i "s|nova-sonic-ecs-stack-ecs-task-execution-role|$TASK_EXECUTION_ROLE_NAME|g" task-definition-updated.json
+sed -i "s|nova-sonic-ecs-stack-nova-sonic-ec2-bridge-task-role|$TASK_ROLE_NAME|g" task-definition-updated.json
+
+echo "Task definition updated with role names"
+echo "Final task definition role ARNs:"
+grep -E "(executionRoleArn|taskRoleArn)" task-definition-updated.json
 
 # Step 8: Register task definition
 echo "📋 Registering ECS task definition..."
