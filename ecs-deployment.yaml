@@ -207,6 +207,7 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
         - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
       Policies:
         - PolicyName: NovaSonicECSPolicy
           PolicyDocument:
@@ -294,14 +295,34 @@ Resources:
         UserData:
           Fn::Base64: !Sub |
             #!/bin/bash
+            set -e
+            
+            # Update system
             yum update -y
+            
+            # Install SSM agent
+            yum install -y amazon-ssm-agent
+            systemctl enable amazon-ssm-agent
+            systemctl start amazon-ssm-agent
+            
+            # Install ECS agent
             yum install -y ecs-init
-            systemctl enable --now ecs
-            echo "ECS_CLUSTER=${ECSClusterName}" >> /etc/ecs/ecs.config
-            echo "ECS_ENABLE_TASK_ENI=true" >> /etc/ecs/ecs.config
-            echo "ECS_ENABLE_TASK_IAM_ROLE=true" >> /etc/ecs/ecs.config
-            echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
-            systemctl restart ecs
+            
+            # Configure ECS
+            mkdir -p /etc/ecs
+            cat > /etc/ecs/ecs.config << EOF
+            ECS_CLUSTER=${ECSClusterName}
+            ECS_ENABLE_TASK_ENI=true
+            ECS_ENABLE_TASK_IAM_ROLE=true
+            ECS_ENABLE_CONTAINER_METADATA=true
+            ECS_LOGLEVEL=debug
+            EOF
+            
+            # Start ECS service
+            systemctl enable ecs
+            systemctl start ecs
+            
+            echo "ECS and SSM agents started successfully"
         IamInstanceProfile:
           Name: !Ref ECSInstanceProfile
         BlockDeviceMappings:
@@ -343,6 +364,11 @@ Resources:
           ToPort: 65535
           CidrIp: 0.0.0.0/0
           Description: Dynamic port range for container port mappings
+        - IpProtocol: tcp
+          FromPort: 51678
+          ToPort: 51678
+          CidrIp: 0.0.0.0/0
+          Description: ECS agent metadata endpoint
       SecurityGroupEgress:
         - IpProtocol: -1
           CidrIp: 0.0.0.0/0
