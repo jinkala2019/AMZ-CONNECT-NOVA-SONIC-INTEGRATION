@@ -1,0 +1,524 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Complete ECS EC2 Deployment for Nova Sonic WebRTC Bridge'
+
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC ID where the ECS cluster will be deployed
+  
+  PublicSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Public subnet IDs for the ECS cluster
+  
+  PrivateSubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Private subnet IDs for the ECS cluster
+  
+  InstanceType:
+    Type: String
+    Default: t3.medium
+    Description: EC2 instance type for ECS cluster
+  
+  MinSize:
+    Type: Number
+    Default: 1
+    Description: Minimum number of instances in the Auto Scaling Group
+  
+  MaxSize:
+    Type: Number
+    Default: 10
+    Description: Maximum number of instances in the Auto Scaling Group
+  
+  DesiredCapacity:
+    Type: Number
+    Default: 2
+    Description: Desired number of instances in the Auto Scaling Group
+
+  ECRRepositoryName:
+    Type: String
+    Default: nova-sonic-bridge
+    Description: Name of the ECR repository
+
+  LambdaFunctionName:
+    Type: String
+    Default: invoke-ecs-ec2-task
+    Description: Name of the Lambda function
+
+  ECSClusterName:
+    Type: String
+    Default: nova-sonic-ecs-cluster
+    Description: Name of the ECS cluster
+
+Resources:
+  # ECR Repository
+  ECRRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Ref ECRRepositoryName
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      LifecyclePolicy:
+        LifecyclePolicyText: |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Keep last 5 images",
+                "selection": {
+                  "tagStatus": "any",
+                  "countType": "imageCountMoreThan",
+                  "countNumber": 5
+                },
+                "action": {
+                  "type": "expire"
+                }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Bridge ECR Repository
+        - Key: Environment
+          Value: Production
+
+  # IAM Role for ECS Task Execution
+  ECSTaskExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-ecs-task-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Tags:
+        - Key: Name
+          Value: Nova Sonic ECS Task Execution Role
+        - Key: Environment
+          Value: Production
+
+  # IAM Role for ECS Task (Nova Sonic Bridge)
+  ECSTaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-nova-sonic-bridge-task-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: NovaSonicBridgePolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                  - bedrock:InvokeModelWithResponseStream
+                  - bedrock:ListFoundationModels
+                  - bedrock:GetFoundationModel
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - kinesisvideo:GetSignalingChannelEndpoint
+                  - kinesisvideo:ConnectAsViewer
+                  - kinesisvideo:ConnectAsMaster
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:CreateRole
+                  - iam:PutRolePolicy
+                  - iam:DeleteRole
+                  - iam:DeleteRolePolicy
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Bridge Task Role
+        - Key: Environment
+          Value: Production
+
+  # IAM Role for Lambda Execution
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-lambda-execution-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+      Policies:
+        - PolicyName: ECSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - iam:PassRole
+                Resource:
+                  - !GetAtt ECSTaskExecutionRole.Arn
+                  - !GetAtt ECSTaskRole.Arn
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Lambda Execution Role
+        - Key: Environment
+          Value: Production
+
+  # IAM Role for EC2 instances
+  ECSInstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${AWS::StackName}-ecs-instance-role
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ec2.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceforEC2Role
+        - arn:aws:iam::aws:policy/CloudWatchAgentServerPolicy
+      Policies:
+        - PolicyName: NovaSonicECSPolicy
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ecs:CreateCluster
+                  - ecs:DeregisterContainerInstance
+                  - ecs:DiscoverPollEndpoint
+                  - ecs:Poll
+                  - ecs:RegisterContainerInstance
+                  - ecs:StartTelemetrySession
+                  - ecs:UpdateContainerInstancesState
+                  - ecs:Submit*
+                  - ecr:GetAuthorizationToken
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - logs:DescribeLogStreams
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ec2:DescribeTags
+                  - ec2:DescribeInstances
+                  - ec2:DescribeRegions
+                Resource: '*'
+      Tags:
+        - Key: Name
+          Value: Nova Sonic ECS Instance Role
+        - Key: Environment
+          Value: Production
+
+  # IAM Instance Profile
+  ECSInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: !Sub "${AWS::StackName}-ecs-instance-profile
+      Roles:
+        - !Ref ECSInstanceRole
+
+  # ECS Cluster
+  ECSCluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterName: !Ref ECSClusterName
+      CapacityProviders:
+        - !Ref ECSCapacityProvider
+      DefaultCapacityProviderStrategy:
+        - CapacityProvider: !Ref ECSCapacityProvider
+          Weight: 1
+      Tags:
+        - Key: Name
+          Value: Nova Sonic ECS Cluster
+        - Key: Environment
+          Value: Production
+
+  # ECS Capacity Provider
+  ECSCapacityProvider:
+    Type: AWS::ECS::CapacityProvider
+    Properties:
+      Name: !Sub "${AWS::StackName}-capacity-provider
+      AutoScalingGroupProvider:
+        AutoScalingGroupArn: !Ref AutoScalingGroup
+        ManagedScaling:
+          MaximumScalingStepSize: 1
+          MinimumScalingStepSize: 1
+          Status: ENABLED
+          TargetCapacity: 100
+        ManagedTerminationProtection: DISABLED
+
+  # Latest Amazon ECS-Optimized AMI
+  LatestAmiId:
+    Type: AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>
+    Default: /aws/service/ecs/optimized-ami/amazon-linux-2/recommended/image_id
+
+  # Launch Template for EC2 instances
+  LaunchTemplate:
+    Type: AWS::EC2::LaunchTemplate
+    Properties:
+      LaunchTemplateName: !Sub "${AWS::StackName}-launch-template
+      LaunchTemplateData:
+        ImageId: !Ref LatestAmiId
+        InstanceType: !Ref InstanceType
+        SecurityGroupIds:
+          - !Ref ECSSecurityGroup
+        UserData:
+          Fn::Base64: !Sub |
+            #!/bin/bash
+            yum update -y
+            yum install -y ecs-init
+            systemctl enable --now ecs
+            echo "ECS_CLUSTER=${ECSCluster}" >> /etc/ecs/ecs.config
+            echo "ECS_ENABLE_TASK_ENI=true" >> /etc/ecs/ecs.config
+            echo "ECS_ENABLE_TASK_IAM_ROLE=true" >> /etc/ecs/ecs.config
+            echo "ECS_ENABLE_CONTAINER_METADATA=true" >> /etc/ecs/ecs.config
+            systemctl restart ecs
+        IamInstanceProfile:
+          Name: !Ref ECSInstanceProfile
+        BlockDeviceMappings:
+          - DeviceName: /dev/xvda
+            Ebs:
+              VolumeSize: 30
+              VolumeType: gp3
+              Encrypted: true
+        TagSpecifications:
+          - ResourceType: instance
+            Tags:
+              - Key: Name
+                Value: Nova Sonic ECS Instance
+              - Key: Environment
+                Value: Production
+              - Key: Purpose
+                Value: WebRTC Bridge
+
+  # Security Group for ECS instances
+  ECSSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub "${AWS::StackName}-ecs-sg
+      GroupDescription: Security group for Nova Sonic ECS instances
+      VpcId: !Ref VpcId
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: 0.0.0.0/0
+          Description: SSH access
+        - IpProtocol: tcp
+          FromPort: 3000
+          ToPort: 3000
+          CidrIp: 0.0.0.0/0
+          Description: WebRTC Bridge health check port
+        - IpProtocol: tcp
+          FromPort: 32768
+          ToPort: 65535
+          CidrIp: 0.0.0.0/0
+          Description: Dynamic port range for container port mappings
+      SecurityGroupEgress:
+        - IpProtocol: -1
+          CidrIp: 0.0.0.0/0
+          Description: All outbound traffic
+      Tags:
+        - Key: Name
+          Value: Nova Sonic ECS Security Group
+        - Key: Environment
+          Value: Production
+
+  # Auto Scaling Group
+  AutoScalingGroup:
+    Type: AWS::AutoScaling::AutoScalingGroup
+    Properties:
+      AutoScalingGroupName: !Sub "${AWS::StackName}-asg
+      LaunchTemplate:
+        LaunchTemplateId: !Ref LaunchTemplate
+        Version: !GetAtt LaunchTemplate.LatestVersionNumber
+      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      MinSize: !Ref MinSize
+      MaxSize: !Ref MaxSize
+      DesiredCapacity: !Ref DesiredCapacity
+      HealthCheckType: EC2
+      HealthCheckGracePeriod: 300
+      Tags:
+        - Key: Name
+          Value: Nova Sonic ECS Instance
+          PropagateAtLaunch: true
+        - Key: Environment
+          Value: Production
+          PropagateAtLaunch: true
+        - Key: Purpose
+          Value: WebRTC Bridge
+          PropagateAtLaunch: true
+
+  # Auto Scaling Group Scaling Policy
+  ScalingPolicy:
+    Type: AWS::AutoScaling::ScalingPolicy
+    Properties:
+      AutoScalingGroupName: !Ref AutoScalingGroup
+      PolicyName: !Sub "${AWS::StackName}-scaling-policy
+      PolicyType: TargetTrackingScaling
+      TargetTrackingConfiguration:
+        PredefinedMetricSpecification:
+          PredefinedMetricType: ECSServiceAverageCPUUtilization
+        TargetValue: 70.0
+        ScaleInCooldown: 300
+        ScaleOutCooldown: 300
+
+  # CloudWatch Log Group for ECS
+  ECSLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: /ecs/nova-sonic-bridge
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Bridge Logs
+        - Key: Environment
+          Value: Production
+
+  # CloudWatch Log Group for Lambda
+  LambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${LambdaFunctionName}"
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Lambda Logs
+        - Key: Environment
+          Value: Production
+
+  # Lambda Function
+  LambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref LambdaFunctionName
+      Runtime: nodejs18.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: dist/lambda-invoke-ecs-ec2.handler
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Lambda function placeholder - replace with actual code');
+            return { statusCode: 200, body: 'Placeholder' };
+          };
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          ECS_CLUSTER_NAME: !Ref ECSClusterName
+          ECS_TASK_DEFINITION: nova-sonic-bridge:1
+          AWS_REGION: !Ref AWS::Region
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Lambda Function
+        - Key: Environment
+          Value: Production
+    DependsOn: LambdaLogGroup
+
+Outputs:
+  ECRRepositoryUri:
+    Description: URI of the ECR repository
+    Value: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}"
+    Export:
+      Name: !Sub "${AWS::StackName}-ECRRepositoryUri"
+
+  ECSClusterName:
+    Description: Name of the ECS cluster
+    Value: !Ref ECSCluster
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSClusterName"
+
+  ECSClusterArn:
+    Description: ARN of the ECS cluster
+    Value: !GetAtt ECSCluster.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSClusterArn"
+
+  LambdaFunctionName:
+    Description: Name of the Lambda function
+    Value: !Ref LambdaFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunctionName"
+
+  LambdaFunctionArn:
+    Description: ARN of the Lambda function
+    Value: !GetAtt LambdaFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaFunctionArn"
+
+  ECSTaskExecutionRoleArn:
+    Description: ARN of the ECS task execution role
+    Value: !GetAtt ECSTaskExecutionRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSTaskExecutionRoleArn"
+
+  ECSTaskRoleArn:
+    Description: ARN of the ECS task role
+    Value: !GetAtt ECSTaskRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSTaskRoleArn"
+
+  AutoScalingGroupName:
+    Description: Name of the Auto Scaling Group
+    Value: !Ref AutoScalingGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-AutoScalingGroupName"
+
+  LaunchTemplateId:
+    Description: ID of the Launch Template
+    Value: !Ref LaunchTemplate
+    Export:
+      Name: !Sub "${AWS::StackName}-LaunchTemplateId"
+
+  ECSInstanceRoleArn:
+    Description: ARN of the ECS instance role
+    Value: !GetAtt ECSInstanceRole.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSInstanceRoleArn"
+
+  ECSSecurityGroupId:
+    Description: ID of the ECS security group
+    Value: !Ref ECSSecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSSecurityGroupId"
+
+  ECSLogGroupName:
+    Description: Name of the ECS log group
+    Value: !Ref ECSLogGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSLogGroupName"
+
+  LambdaLogGroupName:
+    Description: Name of the Lambda log group
+    Value: !Ref LambdaLogGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-LambdaLogGroupName"

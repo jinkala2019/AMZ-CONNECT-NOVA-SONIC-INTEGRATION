@@ -35,124 +35,101 @@ Nova Sonic AI
    - Amazon EC2 (for ECS instances)
    - Auto Scaling Groups
 
-## Step 1: Build and Package the Application
+## Step 1: Complete Deployment (Recommended)
 
-### 1.1 Build the TypeScript Application
+### 1.1 Automated Deployment
+The easiest way to deploy everything is using the complete deployment script:
+
+```bash
+# Make the script executable
+chmod +x deploy-complete.sh
+
+# Run the complete deployment
+./deploy-complete.sh
+```
+
+This script will:
+1. Build the application and Lambda function
+2. Deploy all infrastructure using CloudFormation (IAM roles, ECS cluster, Lambda, ECR, etc.)
+3. Build and push the Docker image
+4. Create the task definition
+5. Update the Lambda function with actual code
+
+### 1.2 Manual Deployment Steps
+If you prefer to deploy manually, follow these steps in order:
+
+#### Step 1: Build the Application
 ```bash
 npm install
 npm run build
 ```
 
-### 1.2 Create Docker Image
-```dockerfile
-# Dockerfile
-FROM node:18-alpine
-
-WORKDIR /app
-
-# Copy package files
-COPY package*.json ./
-RUN npm ci --only=production
-
-# Copy built application
-COPY dist/ ./dist/
-COPY WebRTCBridgeServer.js ./
-
-# Expose port
-EXPOSE 3000
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:3000/health || exit 1
-
-# Start the application
-CMD ["node", "WebRTCBridgeServer.js"]
-```
-
-### 1.3 Build and Push to ECR
+#### Step 2: Build the Lambda Function
 ```bash
-# Create ECR repository
-aws ecr create-repository --repository-name nova-sonic-bridge
-
-# Get ECR login token
-aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin <account-id>.dkr.ecr.us-east-1.amazonaws.com
-
-# Build and tag image
-docker build -t nova-sonic-bridge .
-docker tag nova-sonic-bridge:latest <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:latest
-
-# Push to ECR
-docker push <account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:latest
+cd lambda
+npm install
+npm run build
+cd ..
 ```
 
-## Step 2: Create ECS Task Definition
-
-### 2.1 Task Definition JSON
-```json
-{
-  "family": "nova-sonic-bridge",
-  "networkMode": "bridge",
-  "requiresCompatibilities": ["EC2"],
-  "cpu": "1024",
-  "memory": "2048",
-  "executionRoleArn": "arn:aws:iam::<account-id>:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::<account-id>:role/nova-sonic-bridge-task-role",
-  "containerDefinitions": [
-    {
-      "name": "nova-sonic-bridge",
-      "image": "<account-id>.dkr.ecr.us-east-1.amazonaws.com/nova-sonic-bridge:latest",
-      "portMappings": [
-        {
-          "containerPort": 3000,
-          "hostPort": 3000,
-          "protocol": "tcp"
-        }
-      ],
-      "environment": [
-        { "name": "AWS_REGION", "value": "us-east-1" }
-      ],
-      "logConfiguration": {
-        "logDriver": "awslogs",
-        "options": {
-          "awslogs-group": "/ecs/nova-sonic-bridge",
-          "awslogs-region": "us-east-1",
-          "awslogs-stream-prefix": "ecs"
-        }
-      },
-      "essential": true,
-      "healthCheck": {
-        "command": [
-          "CMD-SHELL",
-          "curl -f http://localhost:3000/health || exit 1"
-        ],
-        "interval": 30,
-        "timeout": 5,
-        "retries": 3,
-        "startPeriod": 60
-      }
-    }
-  ]
-}
-```
-
-### 2.2 Create Task Definition
+#### Step 3: Deploy Infrastructure with CloudFormation
 ```bash
-aws ecs register-task-definition --cli-input-json file://ecs-task-definition-ec2.json
-```
-
-## Step 3: Deploy ECS EC2 Infrastructure
-
-### 3.1 Deploy CloudFormation Stack
-```bash
-# Deploy the ECS EC2 infrastructure
+# Deploy the complete infrastructure
 aws cloudformation deploy \
-    --template-file ecs-ec2-deployment.yaml \
+    --template-file ecs-ec2-complete-deployment.yaml \
     --stack-name nova-sonic-ecs-stack \
     --capabilities CAPABILITY_NAMED_IAM \
     --region us-east-1
 ```
 
-## Step 4: Create Required IAM Roles
+This creates:
+- IAM roles (ECS task execution, ECS task, Lambda execution, EC2 instance)
+- ECS cluster with capacity provider
+- Auto Scaling Group with launch template
+- Security groups
+- Lambda function (with placeholder code)
+- ECR repository
+- CloudWatch log groups
+
+#### Step 4: Build and Push Docker Image
+```bash
+# Get ECR repository URI from CloudFormation outputs
+ECR_URI=$(aws cloudformation describe-stacks --stack-name nova-sonic-ecs-stack --query 'Stacks[0].Outputs[?OutputKey==`ECRRepositoryUri`].OutputValue' --output text)
+
+# Login to ECR
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_URI
+
+# Build and push image
+docker build -t nova-sonic-bridge .
+docker tag nova-sonic-bridge:latest $ECR_URI:latest
+docker push $ECR_URI:latest
+```
+
+#### Step 5: Create Task Definition
+```bash
+# Update task definition with correct image URI
+sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest|$ECR_URI:latest|g" ecs-task-definition-ec2.json > task-definition-updated.json
+
+# Register task definition
+aws ecs register-task-definition --cli-input-json file://task-definition-updated.json
+```
+
+#### Step 6: Update Lambda Function
+```bash
+# Package Lambda function
+cd lambda
+zip -r lambda-deployment.zip dist/ node_modules/ package.json
+
+# Update Lambda function with actual code
+aws lambda update-function-code \
+    --function-name invoke-ecs-ec2-task \
+    --zip-file fileb://lambda-deployment.zip \
+    --region us-east-1
+
+cd ..
+```
+
+## Step 2: Task Definition Reference
 
 ### 4.1 ECS Task Execution Role
 ```json
@@ -264,7 +241,7 @@ zip -r lambda-deployment.zip dist/ node_modules/ package.json
 ### 5.2 Deploy Lambda
 ```bash
 aws lambda create-function \
-  --function-name invoke-fargate-task \
+  --function-name invoke-ecs-ec2-task \
   --runtime nodejs18.x \
   --role arn:aws:iam::<account-id>:role/lambda-execution-role \
   --handler dist/lambda-invoke-ecs-ec2.handler \
@@ -272,10 +249,9 @@ aws lambda create-function \
   --timeout 60 \
   --memory-size 256 \
   --environment Variables='{
-    "ECS_CLUSTER_NAME":"nova-sonic-cluster",
+    "ECS_CLUSTER_NAME":"nova-sonic-ecs-cluster",
     "ECS_TASK_DEFINITION":"nova-sonic-bridge:1",
-    "SUBNET_IDS":"subnet-12345678,subnet-87654321",
-    "SECURITY_GROUP_IDS":"sg-12345678"
+    "AWS_REGION":"us-east-1"
   }'
 ```
 
@@ -302,7 +278,7 @@ aws ecs create-cluster --cluster-name nova-sonic-ecs-cluster
    - Store Customer Phone: `${ContactData.CustomerEndpoint.Address}`
 
 3. **Invoke Lambda Function Block**
-   - Function ARN: `arn:aws:lambda:us-east-1:<account-id>:function:invoke-fargate-task`
+   - Function ARN: `arn:aws:lambda:us-east-1:<account-id>:function:invoke-ecs-ec2-task`
    - Input Parameters:
      ```json
      {
@@ -322,7 +298,7 @@ aws ecs create-cluster --cluster-name nova-sonic-ecs-cluster
 ### 8.1 Test Lambda Function
 ```bash
 aws lambda invoke \
-  --function-name invoke-fargate-task \
+  --function-name invoke-ecs-ec2-task \
   --payload '{
     "StreamARN": "arn:aws:kinesisvideo:us-east-1:123456789012:stream/test-stream",
     "ContactId": "test-contact-123",
@@ -382,7 +358,7 @@ aws logs tail /ecs/nova-sonic-bridge --follow
 ## Step 11: Security Considerations
 
 1. **Network Security**
-   - Use private subnets for Fargate tasks
+   - Use private subnets for EC2 instances
    - Configure security groups to allow only necessary traffic
    - Use VPC endpoints for AWS service access
 
