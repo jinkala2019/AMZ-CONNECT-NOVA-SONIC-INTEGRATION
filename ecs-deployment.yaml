@@ -385,8 +385,6 @@ Resources:
       AutoScalingGroupName: !Ref AutoScalingGroup
       PolicyName: !Sub "${AWS::StackName}-scaling-policy"
       PolicyType: TargetTrackingScaling
-      ScaleInCooldown: 300
-      ScaleOutCooldown: 300
       TargetTrackingConfiguration:
         PredefinedMetricSpecification:
           PredefinedMetricType: ECSServiceAverageCPUUtilization
