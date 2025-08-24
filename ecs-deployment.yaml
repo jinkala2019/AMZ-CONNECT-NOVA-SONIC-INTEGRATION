@@ -361,7 +361,7 @@ Resources:
       LaunchTemplate:
         LaunchTemplateId: !Ref LaunchTemplate
         Version: !GetAtt LaunchTemplate.LatestVersionNumber
-      VPCZoneIdentifier: !Ref PrivateSubnetIds
+      VPCZoneIdentifier: !Ref PublicSubnetIds
       MinSize: !Ref MinSize
       MaxSize: !Ref MaxSize
       DesiredCapacity: !Ref DesiredCapacity

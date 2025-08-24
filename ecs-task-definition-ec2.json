@@ -4,8 +4,8 @@
   "requiresCompatibilities": ["EC2"],
   "cpu": "1024",
   "memory": "2048",
-  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-ec2-bridge-task-role",
+  "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-ecs-stack-ecs-task-execution-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-ecs-stack-nova-sonic-ec2-bridge-task-role",
   "containerDefinitions": [
     {
       "name": "nova-sonic-ec2-bridge",
