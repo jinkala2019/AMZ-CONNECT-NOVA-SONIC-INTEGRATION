@@ -315,15 +315,8 @@ Resources:
             ECS_LOGLEVEL=debug
             EOF
             
-            # Ensure ECS service is enabled and started properly
-            systemctl enable ecs
-            systemctl stop ecs || true
-            sleep 5
-            systemctl start ecs
-            
-            # Wait for ECS agent to be ready
-            echo "Waiting for ECS agent to be ready..."
-            timeout 120 bash -c 'until curl -s http://localhost:51678/v1/metadata > /dev/null 2>&1; do sleep 5; done' || echo "ECS agent metadata endpoint not ready, but continuing..."
+            # Restart ECS service to pick up new configuration
+            systemctl restart ecs
             
             echo "SSM agent installed and ECS configured successfully"
         IamInstanceProfile:
