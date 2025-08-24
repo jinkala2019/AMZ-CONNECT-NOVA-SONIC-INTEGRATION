@@ -430,11 +430,11 @@ Resources:
           };
       Timeout: 60
       MemorySize: 256
-      Environment:
-        Variables:
-          ECS_CLUSTER_NAME: !Ref ECSClusterName
-          ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:1
-          AWS_REGION: !Ref AWS::Region
+             Environment:
+         Variables:
+           ECS_CLUSTER_NAME: !Ref ECSClusterName
+           ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:1
+           DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
         - Key: Name
           Value: Nova Sonic Lambda Function

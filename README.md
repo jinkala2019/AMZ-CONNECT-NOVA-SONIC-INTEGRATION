@@ -42,7 +42,7 @@ The server automatically creates the necessary IAM role and permissions. For ECS
 - `STREAM_ARN` - KVS stream ARN from Amazon Connect's Start Media Streaming block
 - `CONTACT_ID` - Amazon Connect Contact ID for call correlation
 - `CUSTOMER_PHONE_NUMBER` - Customer's phone number for logging
-- `AWS_REGION` - AWS region (defaults to "us-east-1")
+- `DEPLOYMENT_REGION` - AWS region (defaults to "us-east-1")
 
 #### Build & Run
 

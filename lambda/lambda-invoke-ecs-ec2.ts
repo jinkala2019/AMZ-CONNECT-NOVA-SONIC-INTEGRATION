@@ -16,7 +16,7 @@
 
 import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 
-const ecsClient = new ECSClient({ region: process.env.AWS_REGION || 'us-east-1' });
+const ecsClient = new ECSClient({ region: process.env.DEPLOYMENT_REGION || 'us-east-1' });
 
 interface LambdaEvent {
     StreamARN: string;
@@ -48,7 +48,7 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
                 { name: 'STREAM_ARN', value: StreamARN },
                 { name: 'CONTACT_ID', value: ContactId },
                 { name: 'CUSTOMER_PHONE_NUMBER', value: CustomerPhoneNumber },
-                { name: 'AWS_REGION', value: process.env.AWS_REGION || 'us-east-1' },
+                                 { name: 'AWS_REGION', value: process.env.DEPLOYMENT_REGION || 'us-east-1' },
                 { name: 'CALL_START_TIME', value: new Date().toISOString() }
             ]
         }];

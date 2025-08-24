@@ -43,7 +43,7 @@ import { S2SBidirectionalStreamClient, StreamSession } from './src/nova-client';
 import { mulaw } from 'alawmulaw';
 
 // AWS Configuration
-const AWS_REGION = process.env.AWS_REGION || "us-east-1";
+const AWS_REGION = process.env.DEPLOYMENT_REGION || "us-east-1";
 const ROLE_NAME = "NovaSonicWebRTCBridgeRole";
 const POLICY_NAME = "NovaSonicWebRTCBridgePolicy";
 

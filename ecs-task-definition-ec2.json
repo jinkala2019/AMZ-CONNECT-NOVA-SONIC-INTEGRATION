@@ -18,7 +18,7 @@
         }
       ],
       "environment": [
-        { "name": "AWS_REGION", "value": "us-east-1" }
+        { "name": "DEPLOYMENT_REGION", "value": "us-east-1" }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
