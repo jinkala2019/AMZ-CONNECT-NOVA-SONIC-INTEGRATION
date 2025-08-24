@@ -43,7 +43,7 @@ echo "Private Subnets: $PRIVATE_SUBNETS"
 # Step 4: Deploy complete CloudFormation stack
 echo "☁️ Deploying complete CloudFormation stack..."
 aws cloudformation deploy \
-    --template-file ecs-ec2-complete-deployment.yaml \
+    --template-file ecs-deployment.yaml \
     --stack-name $STACK_NAME \
     --parameter-overrides \
         VpcId=$VPC_ID \

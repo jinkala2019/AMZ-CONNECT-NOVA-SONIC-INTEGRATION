@@ -9,8 +9,7 @@
         "cli": "ts-node src/index-cli.ts",
         "dev": "ts-node WebRTCBridgeServer.ts",
         "cleanup": "ts-node WebRTCBridgeServer.ts --cleanup",
-        "deploy:ec2": "chmod +x deploy-ecs-ec2.sh && ./deploy-ecs-ec2.sh",
-        "deploy:complete": "chmod +x deploy-complete.sh && ./deploy-complete.sh",
+        "deploy": "chmod +x deploy.sh && ./deploy.sh",
         "build:lambda": "cd lambda && npm install && npm run build"
     },
     "keywords": [],

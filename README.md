@@ -62,7 +62,12 @@ The server automatically creates the necessary IAM role and permissions. For ECS
    npm start
    ```
 
-4. **Cleanup IAM resources:**
+4. **Deploy to AWS (ECS EC2):**
+   ```bash
+   npm run deploy
+   ```
+
+5. **Cleanup IAM resources:**
    ```bash
    npm run cleanup
    ```
@@ -92,7 +97,30 @@ Each call log includes:
 - All Nova Sonic responses
 - Interruption detection events
 
-> **Note**: For production deployment, deploy as an ECS EC2 task that can be invoked by Lambda functions. This architecture ensures proper scaling and isolation for each call, with better performance and control over long-running calls. 
+> **Note**: For production deployment, deploy as an ECS EC2 task that can be invoked by Lambda functions. This architecture ensures proper scaling and isolation for each call, with better performance and control over long-running calls.
+
+## Deployment
+
+### Quick Deployment
+```bash
+npm run deploy
+```
+
+This command will:
+1. Build the application and Lambda function
+2. Deploy all infrastructure using CloudFormation
+3. Build and push the Docker image to ECR
+4. Create the ECS task definition
+5. Update the Lambda function with actual code
+
+### Manual Deployment
+For detailed deployment instructions, see `DEPLOYMENT.md`.
+
+### Architecture
+- **ECS EC2 Cluster**: Runs the WebRTC bridge containers
+- **Lambda Function**: Invokes ECS tasks for each call
+- **Auto Scaling Group**: Manages EC2 instances
+- **CloudFormation**: Infrastructure as code deployment 
 
 ## Amazon Connect Integration
 

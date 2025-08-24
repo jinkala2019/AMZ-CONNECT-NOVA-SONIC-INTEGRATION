@@ -38,14 +38,14 @@ Nova Sonic AI
 ## Step 1: Complete Deployment (Recommended)
 
 ### 1.1 Automated Deployment
-The easiest way to deploy everything is using the complete deployment script:
+The easiest way to deploy everything is using the deployment script:
 
 ```bash
 # Make the script executable
-chmod +x deploy-complete.sh
+chmod +x deploy.sh
 
-# Run the complete deployment
-./deploy-complete.sh
+# Run the deployment
+./deploy.sh
 ```
 
 This script will:
@@ -76,7 +76,7 @@ cd ..
 ```bash
 # Deploy the complete infrastructure
 aws cloudformation deploy \
-    --template-file ecs-ec2-complete-deployment.yaml \
+    --template-file ecs-deployment.yaml \
     --stack-name nova-sonic-ecs-stack \
     --capabilities CAPABILITY_NAMED_IAM \
     --region us-east-1
