@@ -52,6 +52,15 @@ const STREAM_ARN = process.env.STREAM_ARN;
 const CONTACT_ID = process.env.CONTACT_ID || 'Unknown';
 const CUSTOMER_PHONE_NUMBER = process.env.CUSTOMER_PHONE_NUMBER || 'Unknown';
 
+// Debug: Log environment variables
+console.log('🔍 Environment Variables Debug:', {
+    STREAM_ARN: STREAM_ARN,
+    CONTACT_ID: CONTACT_ID,
+    CUSTOMER_PHONE_NUMBER: CUSTOMER_PHONE_NUMBER,
+    DEPLOYMENT_REGION: process.env.DEPLOYMENT_REGION,
+    CALL_START_TIME: process.env.CALL_START_TIME
+});
+
 // Initialize AWS clients
 const iamClient = new IAMClient({ region: AWS_REGION });
 const stsClient = new STSClient({ region: AWS_REGION });
@@ -319,6 +328,13 @@ async function initializeNovaSonicClient() {
 async function connectToKVSSignalingChannel() {
     try {
         if (!STREAM_ARN) {
+            console.error('❌ STREAM_ARN is missing. Available environment variables:', {
+                STREAM_ARN: process.env.STREAM_ARN,
+                CONTACT_ID: process.env.CONTACT_ID,
+                CUSTOMER_PHONE_NUMBER: process.env.CUSTOMER_PHONE_NUMBER,
+                DEPLOYMENT_REGION: process.env.DEPLOYMENT_REGION,
+                CALL_START_TIME: process.env.CALL_START_TIME
+            });
             throw new Error('STREAM_ARN environment variable is required');
         }
 

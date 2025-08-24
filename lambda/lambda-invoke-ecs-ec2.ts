@@ -19,9 +19,14 @@ import { ECSClient, RunTaskCommand } from "@aws-sdk/client-ecs";
 const ecsClient = new ECSClient({ region: process.env.DEPLOYMENT_REGION || 'us-east-1' });
 
 interface LambdaEvent {
-    StreamARN: string;
-    ContactId: string;
-    CustomerPhoneNumber: string;
+    Details: {
+        Parameters: {
+            StreamARN: string;
+            ContactId: string;
+            CustomerPhoneNumber: string;
+        };
+    };
+    Name: string;
 }
 
 interface LambdaResponse {
@@ -34,7 +39,13 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
     try {
         console.log('🚀 Lambda invoked with event:', JSON.stringify(event, null, 2));
 
-        const { StreamARN, ContactId, CustomerPhoneNumber } = event;
+        // Validate event structure
+        if (!event.Details || !event.Details.Parameters) {
+            console.error('❌ Invalid event structure. Expected event.Details.Parameters');
+            throw new Error('Invalid event structure. Expected event.Details.Parameters');
+        }
+
+        const { StreamARN, ContactId, CustomerPhoneNumber } = event.Details.Parameters;
 
         // Validate required parameters
         if (!StreamARN || !ContactId || !CustomerPhoneNumber) {
@@ -48,7 +59,7 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
                 { name: 'STREAM_ARN', value: StreamARN },
                 { name: 'CONTACT_ID', value: ContactId },
                 { name: 'CUSTOMER_PHONE_NUMBER', value: CustomerPhoneNumber },
-                                 { name: 'AWS_REGION', value: process.env.DEPLOYMENT_REGION || 'us-east-1' },
+                { name: 'AWS_REGION', value: process.env.DEPLOYMENT_REGION || 'us-east-1' },
                 { name: 'CALL_START_TIME', value: new Date().toISOString() }
             ]
         }];
@@ -145,8 +156,12 @@ Contact Flow Block Configuration:
    - Function ARN: arn:aws:lambda:region:account:function:invoke-ecs-ec2-task
    - Input Parameters:
      {
-       "StreamARN": "${MediaStreaming.StreamARN}",
-       "ContactId": "${ContactData.ContactId}",
-       "CustomerPhoneNumber": "${ContactData.CustomerEndpoint.Address}"
+       "Details": {
+         "Parameters": {
+           "StreamARN": "${MediaStreaming.StreamARN}",
+           "ContactId": "${ContactData.ContactId}",
+           "CustomerPhoneNumber": "${ContactData.CustomerEndpoint.Address}"
+         }
+       }
      }
 */
