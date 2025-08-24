@@ -165,7 +165,7 @@ async function createNovaSonicRole() {
             Tags: [
                 {
                     Key: "Environment",
-                    Value: "nova-sonic-bridge"
+                    Value: "nova-sonic-ec2-bridge"
                 },
                 {
                     Key: "Purpose",

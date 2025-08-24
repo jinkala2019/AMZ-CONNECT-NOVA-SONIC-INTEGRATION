@@ -43,7 +43,7 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
 
         // Prepare task definition overrides
         const containerOverrides = [{
-            name: 'nova-sonic-bridge',
+            name: 'nova-sonic-ec2-bridge',
             environment: [
                 { name: 'STREAM_ARN', value: StreamARN },
                 { name: 'CONTACT_ID', value: ContactId },

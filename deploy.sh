@@ -87,7 +87,7 @@ aws cloudformation deploy \
         MinSize=1 \
         MaxSize=5 \
         DesiredCapacity=2 \
-        ECRRepositoryName=nova-sonic-bridge \
+        ECRRepositoryName=nova-sonic-ec2-bridge \
         LambdaFunctionName=invoke-ecs-ec2-task \
         ECSClusterName=nova-sonic-ecs-cluster \
     --capabilities CAPABILITY_NAMED_IAM \
@@ -109,13 +109,13 @@ echo "Lambda Function Name: $LAMBDA_FUNCTION_NAME"
 echo "🐳 Building and pushing Docker image..."
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
-docker build -t nova-sonic-bridge .
-docker tag nova-sonic-bridge:latest $ECR_REPOSITORY_URI:latest
+docker build -t nova-sonic-ec2-bridge .
+docker tag nova-sonic-ec2-bridge:latest $ECR_REPOSITORY_URI:latest
 docker push $ECR_REPOSITORY_URI:latest
 
 # Step 7: Create task definition with correct image URI
 echo "📝 Creating task definition..."
-sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|$REGION|g" ecs-task-definition-ec2.json > task-definition-updated.json
+sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|$REGION|g" ecs-task-definition-ec2.json > task-definition-updated.json
 
 # Step 8: Register task definition
 echo "📋 Registering ECS task definition..."

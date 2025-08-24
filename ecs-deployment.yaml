@@ -36,7 +36,7 @@ Parameters:
 
   ECRRepositoryName:
     Type: String
-    Default: nova-sonic-bridge
+    Default: nova-sonic-ec2-bridge
     Description: Name of the ECR repository
 
   LambdaFunctionName:
@@ -110,7 +110,7 @@ Resources:
   ECSTaskRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${AWS::StackName}-nova-sonic-bridge-task-role"
+      RoleName: !Sub "${AWS::StackName}-nova-sonic-ec2-bridge-task-role"
       AssumeRolePolicyDocument:
         Version: '2012-10-17'
         Statement:
@@ -394,7 +394,7 @@ Resources:
   ECSLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: /ecs/nova-sonic-bridge
+      LogGroupName: /ecs/nova-sonic-ec2-bridge
       RetentionInDays: 30
       Tags:
         - Key: Name
@@ -433,7 +433,7 @@ Resources:
       Environment:
         Variables:
           ECS_CLUSTER_NAME: !Ref ECSClusterName
-          ECS_TASK_DEFINITION: nova-sonic-bridge:1
+          ECS_TASK_DEFINITION: nova-sonic-ec2-bridge:1
           AWS_REGION: !Ref AWS::Region
       Tags:
         - Key: Name

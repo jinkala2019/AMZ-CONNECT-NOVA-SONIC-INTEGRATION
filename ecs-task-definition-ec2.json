@@ -1,15 +1,15 @@
 {
-  "family": "nova-sonic-bridge",
+  "family": "nova-sonic-ec2-bridge",
   "networkMode": "bridge",
   "requiresCompatibilities": ["EC2"],
   "cpu": "1024",
   "memory": "2048",
   "executionRoleArn": "arn:aws:iam::ACCOUNT_ID:role/ecsTaskExecutionRole",
-  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-bridge-task-role",
+  "taskRoleArn": "arn:aws:iam::ACCOUNT_ID:role/nova-sonic-ec2-bridge-task-role",
   "containerDefinitions": [
     {
-      "name": "nova-sonic-bridge",
-      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest",
+      "name": "nova-sonic-ec2-bridge",
+      "image": "ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest",
       "portMappings": [
         {
           "containerPort": 3000,
@@ -23,7 +23,7 @@
       "logConfiguration": {
         "logDriver": "awslogs",
         "options": {
-          "awslogs-group": "/ecs/nova-sonic-bridge",
+          "awslogs-group": "/ecs/nova-sonic-ec2-bridge",
           "awslogs-region": "us-east-1",
           "awslogs-stream-prefix": "ecs"
         }
@@ -52,8 +52,8 @@
       "secrets": [],
       "dockerLabels": {
         "com.amazonaws.ecs.cluster": "nova-sonic-ecs-cluster",
-        "com.amazonaws.ecs.container-name": "nova-sonic-bridge",
-        "com.amazonaws.ecs.task-definition-family": "nova-sonic-bridge"
+        "com.amazonaws.ecs.container-name": "nova-sonic-ec2-bridge",
+        "com.amazonaws.ecs.task-definition-family": "nova-sonic-ec2-bridge"
       }
     }
   ],
@@ -70,7 +70,7 @@
     },
     {
       "key": "Service",
-      "value": "nova-sonic-bridge"
+      "value": "nova-sonic-ec2-bridge"
     }
   ]
 }

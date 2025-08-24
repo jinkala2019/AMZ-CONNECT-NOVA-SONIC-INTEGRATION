@@ -76,7 +76,7 @@ aws cloudformation deploy \
         MinSize=1 \
         MaxSize=5 \
         DesiredCapacity=2 \
-        ECRRepositoryName=nova-sonic-bridge \
+        ECRRepositoryName=nova-sonic-ec2-bridge \
         LambdaFunctionName=invoke-ecs-ec2-task \
         ECSClusterName=nova-sonic-ecs-cluster \
     --capabilities CAPABILITY_NAMED_IAM \
@@ -102,13 +102,13 @@ ECR_REPOSITORY_URI=$(aws cloudformation describe-stacks --stack-name nova-sonic-
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
 
 # Build and push Docker image
-docker build -t nova-sonic-bridge .
-docker tag nova-sonic-bridge:latest $ECR_REPOSITORY_URI:latest
+docker build -t nova-sonic-ec2-bridge .
+docker tag nova-sonic-ec2-bridge:latest $ECR_REPOSITORY_URI:latest
 docker push $ECR_REPOSITORY_URI:latest
 
 # Create and register task definition
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|us-east-1|g" ecs-task-definition-ec2.json > task-definition-updated.json
+sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|us-east-1|g" ecs-task-definition-ec2.json > task-definition-updated.json
 
 aws ecs register-task-definition --cli-input-json file://task-definition-updated.json --region us-east-1
 
@@ -162,7 +162,7 @@ If you encounter "parameter value for parameter name PrivateSubnetIds does not e
            MinSize=1 \
            MaxSize=5 \
            DesiredCapacity=2 \
-           ECRRepositoryName=nova-sonic-bridge \
+           ECRRepositoryName=nova-sonic-ec2-bridge \
            LambdaFunctionName=invoke-ecs-ec2-task \
            ECSClusterName=nova-sonic-ecs-cluster \
        --capabilities CAPABILITY_NAMED_IAM \
@@ -201,7 +201,7 @@ aws cloudformation deploy \
         MinSize=1 \
         MaxSize=5 \
         DesiredCapacity=2 \
-        ECRRepositoryName=nova-sonic-bridge \
+        ECRRepositoryName=nova-sonic-ec2-bridge \
         LambdaFunctionName=invoke-ecs-ec2-task \
         ECSClusterName=nova-sonic-ecs-cluster \
     --capabilities CAPABILITY_NAMED_IAM \
@@ -217,8 +217,8 @@ ECR_REPOSITORY_URI=$(aws cloudformation describe-stacks --stack-name nova-sonic-
 aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin $ECR_REPOSITORY_URI
 
 # Build and push image
-docker build -t nova-sonic-bridge .
-docker tag nova-sonic-bridge:latest $ECR_REPOSITORY_URI:latest
+docker build -t nova-sonic-ec2-bridge .
+docker tag nova-sonic-ec2-bridge:latest $ECR_REPOSITORY_URI:latest
 docker push $ECR_REPOSITORY_URI:latest
 ```
 
@@ -226,7 +226,7 @@ docker push $ECR_REPOSITORY_URI:latest
 ```bash
 # Update task definition with correct image URI
 ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|us-east-1|g" ecs-task-definition-ec2.json > task-definition-updated.json
+sed "s|ACCOUNT_ID.dkr.ecr.REGION.amazonaws.com/nova-sonic-ec2-bridge:latest|$ECR_REPOSITORY_URI:latest|g; s|ACCOUNT_ID|$ACCOUNT_ID|g; s|REGION|us-east-1|g" ecs-task-definition-ec2.json > task-definition-updated.json
 
 # Register task definition
 aws ecs register-task-definition --cli-input-json file://task-definition-updated.json --region us-east-1
@@ -288,7 +288,7 @@ aws lambda invoke \
 aws logs tail /aws/lambda/invoke-ecs-ec2-task --follow --region us-east-1
 
 # ECS logs
-aws logs tail /ecs/nova-sonic-bridge --follow --region us-east-1
+aws logs tail /ecs/nova-sonic-ec2-bridge --follow --region us-east-1
 ```
 
 ## Cleanup
