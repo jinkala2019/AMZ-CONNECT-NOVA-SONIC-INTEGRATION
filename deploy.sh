@@ -27,9 +27,8 @@ npm install
 npm run build
 cd ..
 
-# Copy the new continuous bridge Lambda function
-echo "📦 Copying continuous bridge Lambda function..."
-cp lambda/lambda-invoke-continuous-bridge.ts lambda/
+# Note: lambda-invoke-continuous-bridge.ts is already in the lambda directory
+echo "📦 Continuous bridge Lambda function ready for deployment..."
 
 # Step 3: Get VPC and subnet information with better error handling
 echo "🌐 Getting VPC and subnet information..."
