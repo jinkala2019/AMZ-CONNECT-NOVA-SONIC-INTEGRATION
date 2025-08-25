@@ -58,7 +58,7 @@ let novaSonicSession: StreamSession;
 // Session timeout management
 let sessionTimeoutId: NodeJS.Timeout | null = null;
 let lastNovaSonicResponseTime: Date = new Date();
-const SESSION_TIMEOUT_MS = 60000; // 60 seconds
+const SESSION_TIMEOUT_MS = 300000; // 300 seconds (5 minutes)
 
 // Call tracking and logging
 interface CallSession {
@@ -628,7 +628,7 @@ async function cleanup() {
  * Start session timeout monitoring
  */
 function startSessionTimeoutMonitoring() {
-    console.log('⏰ Starting session timeout monitoring (60 seconds)...');
+    console.log('⏰ Starting session timeout monitoring (300 seconds)...');
     
     // Clear any existing timeout
     if (sessionTimeoutId) {
@@ -637,7 +637,7 @@ function startSessionTimeoutMonitoring() {
     
     // Set new timeout
     sessionTimeoutId = setTimeout(async () => {
-        console.log('⏰ Session timeout reached - no Nova Sonic response for 60 seconds');
+        console.log('⏰ Session timeout reached - no Nova Sonic response for 300 seconds');
         logCallActivity('SESSION_TIMEOUT', { 
             timeoutMs: SESSION_TIMEOUT_MS,
             lastResponseTime: lastNovaSonicResponseTime.toISOString()
@@ -667,7 +667,7 @@ function resetSessionTimeout() {
     
     // Set new timeout
     sessionTimeoutId = setTimeout(async () => {
-        console.log('⏰ Session timeout reached - no Nova Sonic response for 60 seconds');
+        console.log('⏰ Session timeout reached - no Nova Sonic response for 300 seconds');
         logCallActivity('SESSION_TIMEOUT', { 
             timeoutMs: SESSION_TIMEOUT_MS,
             lastResponseTime: lastNovaSonicResponseTime.toISOString()
@@ -774,6 +774,37 @@ fastify.post('/test-audio', async (request, reply) => {
     }
 });
 
+// Continuous mode endpoint - handle incoming calls
+fastify.post('/handle-call', async (request, reply) => {
+    try {
+        const { contactId, customerPhoneNumber } = request.body as any;
+        
+        console.log('📞 Incoming call request:', { contactId, customerPhoneNumber });
+        
+        // Update session with new call details
+        callSession.contactId = contactId || callSession.contactId;
+        callSession.customerPhoneNumber = customerPhoneNumber || callSession.customerPhoneNumber;
+        callSession.lastActivity = new Date();
+        
+        // Reset session timeout for new call
+        resetSessionTimeout();
+        
+        // Simulate audio input for this call
+        await simulateAudioInput();
+        
+        reply.send({ 
+            status: 'success', 
+            message: 'Call handled successfully',
+            sessionId: callSession.sessionId,
+            contactId: callSession.contactId,
+            customerPhoneNumber: callSession.customerPhoneNumber
+        });
+    } catch (error) {
+        console.error('❌ Error handling call:', error);
+        reply.status(500).send({ status: 'error', message: error.message });
+    }
+});
+
 /**
  * Start the server with proper initialization
  */
@@ -797,17 +828,34 @@ async function startServer() {
         console.log('🔗 Health check: http://localhost:3000/health');
         console.log('📊 Call logs: http://localhost:3000/call-logs');
         console.log('🧪 Test audio: POST http://localhost:3000/test-audio');
+        console.log('📞 Handle call: POST http://localhost:3000/handle-call');
 
         logCallActivity('SERVER_STARTED', { 
             port: 3000,
             contactId: CONTACT_ID 
         });
 
-        // Simulate audio input after 5 seconds to test Nova Sonic response
+        // Continuous mode: Keep server alive and ready for calls
+        console.log('🔄 Running in continuous mode - server ready for incoming calls');
+        
+        // Initial test after 5 seconds
         setTimeout(async () => {
-            console.log('🧪 Testing Nova Sonic with simulated audio input...');
+            console.log('🧪 Initial Nova Sonic test with simulated audio input...');
             await simulateAudioInput();
         }, 5000);
+        
+        // Keep-alive ping every 30 seconds to maintain Nova Sonic connection
+        setInterval(async () => {
+            try {
+                console.log('💓 Keep-alive ping to Nova Sonic...');
+                // Send a minimal audio chunk to keep connection alive
+                const keepAliveAudio = Buffer.from('UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUXrTp66hVFApGn+DyvmwhBSuBzvLZiTYIG2m98OScTgwOUarm7blmGgU7k9n1unEiBC13yO/eizEIHWq+8+OWT');
+                await novaSonicSession.streamAudio(keepAliveAudio);
+                console.log('💓 Keep-alive ping sent successfully');
+            } catch (error) {
+                console.error('❌ Keep-alive ping failed:', error);
+            }
+        }, 30000); // Every 30 seconds
 
     } catch (error) {
         console.error('❌ Failed to start server:', error);

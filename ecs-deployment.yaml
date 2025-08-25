@@ -467,6 +467,33 @@ Resources:
           Value: Production
     DependsOn: LambdaLogGroup
 
+  # Continuous Bridge Lambda Function
+  ContinuousBridgeLambdaFunction:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Sub "${AWS::StackName}-invoke-continuous-bridge"
+      Runtime: nodejs18.x
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Handler: dist/lambda-invoke-continuous-bridge.handler
+      Code:
+        ZipFile: |
+          exports.handler = async (event) => {
+            console.log('Continuous bridge Lambda function placeholder - replace with actual code');
+            return { statusCode: 200, body: 'Placeholder' };
+          };
+      Timeout: 60
+      MemorySize: 256
+      Environment:
+        Variables:
+          ECS_CLUSTER_NAME: !Ref ECSClusterName
+          DEPLOYMENT_REGION: !Ref AWS::Region
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Continuous Bridge Lambda Function
+        - Key: Environment
+          Value: Production
+    DependsOn: LambdaLogGroup
+
 Outputs:
   ECRRepositoryUri:
     Description: URI of the ECR repository
