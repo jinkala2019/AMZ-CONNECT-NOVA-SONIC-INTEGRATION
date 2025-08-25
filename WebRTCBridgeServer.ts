@@ -41,7 +41,7 @@ import { IAMClient, CreateRoleCommand, PutRolePolicyCommand } from "@aws-sdk/cli
 import { STSClient } from "@aws-sdk/client-sts";
 import { S2SBidirectionalStreamClient, StreamSession } from './src/nova-client';
 // WebRTC imports for actual audio transmission
-import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } from 'wrtc';
+// import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } from 'wrtc';
 // WebSocket for KVS signaling
 import WebSocket from 'ws';
 // Remove mulaw import since we're using PCM format
@@ -75,10 +75,10 @@ let bedrockClient: S2SBidirectionalStreamClient;
 let novaSonicSession: StreamSession;
 let kvsConnection: any; // Add this for consistency
 
-// WebRTC peer connection for actual audio transmission
-let peerConnection: RTCPeerConnection | null = null;
-let audioSender: any = null;
-let audioReceiver: any = null;
+// WebRTC peer connection for actual audio transmission (temporarily disabled)
+// let peerConnection: RTCPeerConnection | null = null;
+// let audioSender: any = null;
+// let audioReceiver: any = null;
 
 // KVS WebSocket connection for signaling
 let kvsWebSocket: WebSocket | null = null;
@@ -404,8 +404,8 @@ async function connectToKVSSignalingChannel() {
             streamARN: STREAM_ARN
         });
 
-        // Initialize WebRTC connection after KVS signaling is ready
-        await initializeWebRTCConnection();
+        // Initialize WebRTC connection after KVS signaling is ready (temporarily disabled)
+        // await initializeWebRTCConnection();
 
     } catch (error) {
         console.error('❌ Error connecting to KVS signaling channel:', error);
@@ -458,17 +458,17 @@ async function connectToKVSWebSocket(signalingEndpoint: string) {
                         logCallActivity('KVS_CONNECTION_CONFIRMED', { message });
                         resolve();
                     } else if (message.action === 'offer') {
-                        console.log('📥 Received WebRTC offer from Amazon Connect');
+                        console.log('📥 Received WebRTC offer from Amazon Connect (temporarily disabled)');
                         logCallActivity('WEBRTC_OFFER_RECEIVED', { offer: message.sdp });
-                        handleWebRTCOffer(message.sdp);
+                        // handleWebRTCOffer(message.sdp);
                     } else if (message.action === 'answer') {
-                        console.log('📥 Received WebRTC answer from Amazon Connect');
+                        console.log('📥 Received WebRTC answer from Amazon Connect (temporarily disabled)');
                         logCallActivity('WEBRTC_ANSWER_RECEIVED', { answer: message.sdp });
-                        handleWebRTCAnswer(message.sdp);
+                        // handleWebRTCAnswer(message.sdp);
                     } else if (message.action === 'ice-candidate') {
-                        console.log('🧊 Received ICE candidate from Amazon Connect');
+                        console.log('🧊 Received ICE candidate from Amazon Connect (temporarily disabled)');
                         logCallActivity('ICE_CANDIDATE_RECEIVED', { candidate: message.candidate });
-                        handleICECandidate(message.candidate);
+                        // handleICECandidate(message.candidate);
                     }
                 } catch (error) {
                     console.error('❌ Error parsing KVS message:', error);

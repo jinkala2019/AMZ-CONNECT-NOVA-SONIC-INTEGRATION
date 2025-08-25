@@ -1,11 +1,11 @@
-# Dockerfile for Nova Sonic WebRTC Bridge
-FROM node:18-alpine
+# Dockerfile for Nova Sonic WebRTC Bridge (WebRTC temporarily disabled)
+FROM node:18-slim
 
-# Install system dependencies
-RUN apk add --no-cache \
+# Install basic system dependencies
+RUN apt-get update && apt-get install -y \
     curl \
     bash \
-    && rm -rf /var/cache/apk/*
+    && rm -rf /var/lib/apt/lists/*
 
 # Create app directory
 WORKDIR /app
@@ -13,7 +13,7 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies (including dev dependencies for build)
+# Install dependencies
 RUN npm ci && npm cache clean --force
 
 # Copy source code
@@ -27,8 +27,7 @@ RUN rm -rf src/ *.ts tsconfig.json
 RUN npm prune --production
 
 # Create non-root user
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN groupadd -r nodejs && useradd -r -g nodejs nodejs
 
 # Change ownership of the app directory
 RUN chown -R nodejs:nodejs /app
