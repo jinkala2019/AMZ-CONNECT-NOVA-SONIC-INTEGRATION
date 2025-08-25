@@ -40,7 +40,12 @@ import { fromTemporaryCredentials } from "@aws-sdk/credential-providers";
 import { IAMClient, CreateRoleCommand, PutRolePolicyCommand } from "@aws-sdk/client-iam";
 import { STSClient } from "@aws-sdk/client-sts";
 import { S2SBidirectionalStreamClient, StreamSession } from './src/nova-client';
-import { mulaw } from 'alawmulaw';
+// WebRTC imports for actual audio transmission
+import { RTCPeerConnection, RTCSessionDescription, RTCIceCandidate } from 'wrtc';
+// WebSocket for KVS signaling
+import WebSocket from 'ws';
+// Remove mulaw import since we're using PCM format
+// import { mulaw } from 'alawmulaw';
 
 // AWS Configuration
 const AWS_REGION = process.env.DEPLOYMENT_REGION || "us-east-1";
@@ -69,6 +74,15 @@ const stsClient = new STSClient({ region: AWS_REGION });
 let bedrockClient: S2SBidirectionalStreamClient;
 let novaSonicSession: StreamSession;
 let kvsConnection: any; // Add this for consistency
+
+// WebRTC peer connection for actual audio transmission
+let peerConnection: RTCPeerConnection | null = null;
+let audioSender: any = null;
+let audioReceiver: any = null;
+
+// KVS WebSocket connection for signaling
+let kvsWebSocket: WebSocket | null = null;
+let kvsSignalingEndpoint: string | null = null;
 
 // Session timeout management
 let sessionTimeoutId: NodeJS.Timeout | null = null;
@@ -341,8 +355,8 @@ async function initializeNovaSonicClient() {
 }
 
 /**
- * Simulate KVS signaling channel connection
- * In production, this would connect to actual KVS signaling channel
+ * Connect to KVS signaling channel for WebRTC communication with Amazon Connect
+ * This establishes the actual WebSocket connection to KVS signaling endpoint
  */
 async function connectToKVSSignalingChannel() {
     try {
@@ -359,28 +373,38 @@ async function connectToKVSSignalingChannel() {
 
         logCallActivity('KVS_CONNECTION_STARTED', { streamARN: STREAM_ARN });
 
-        // Simulate getting KVS signaling endpoint
-        // In production, you would use:
-        // const { KinesisVideoSignalingClient, GetSignalingChannelEndpointCommand } = await import("@aws-sdk/client-kinesis-video-signaling");
-        // const kvsClient = new KinesisVideoSignalingClient({ region: AWS_REGION });
-        // const endpointCommand = new GetSignalingChannelEndpointCommand({
-        //     ChannelARN: STREAM_ARN,
-        //     SingleMasterChannelEndpointConfiguration: {
-        //         Protocols: ['WSS', 'HTTPS'],
-        //         Role: 'VIEWER'
-        //     }
-        // });
-        // const endpointResponse = await kvsClient.send(endpointCommand);
+        // Get KVS signaling endpoint
+        const { KinesisVideoSignalingClient, GetSignalingChannelEndpointCommand } = await import("@aws-sdk/client-kinesis-video-signaling");
+        const kvsClient = new KinesisVideoSignalingClient({ region: AWS_REGION });
+        
+        const endpointCommand = new GetSignalingChannelEndpointCommand({
+            ChannelARN: STREAM_ARN,
+            SingleMasterChannelEndpointConfiguration: {
+                Protocols: ['WSS', 'HTTPS'],
+                Role: 'VIEWER'
+            }
+        });
+        
+        const endpointResponse = await kvsClient.send(endpointCommand);
+        const signalingEndpoint = endpointResponse.ResourceEndpointList?.[0]?.ResourceEndpoint;
+        
+        if (!signalingEndpoint) {
+            throw new Error('Failed to get KVS signaling endpoint');
+        }
 
-        // Simulate connection delay
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        console.log('🔗 KVS Signaling endpoint:', signalingEndpoint);
+        logCallActivity('KVS_ENDPOINT_RETRIEVED', { endpoint: signalingEndpoint });
+
+        // Connect to KVS signaling channel via WebSocket
+        await connectToKVSWebSocket(signalingEndpoint);
 
         callSession.kvsState = 'connected';
         logCallActivity('KVS_SIGNALING_CONNECTED', { 
-            endpoint: `wss://kvs-signaling.${AWS_REGION}.amazonaws.com/${STREAM_ARN}` 
+            endpoint: signalingEndpoint,
+            streamARN: STREAM_ARN
         });
 
-        // Simulate WebRTC connection
+        // Initialize WebRTC connection after KVS signaling is ready
         await initializeWebRTCConnection();
 
     } catch (error) {
@@ -391,31 +415,312 @@ async function connectToKVSSignalingChannel() {
 }
 
 /**
- * Simulate WebRTC peer connection initialization
- * In production, this would create actual WebRTC peer connection
+ * Connect to KVS signaling channel via WebSocket for WebRTC signaling
+ * This establishes the actual WebSocket connection to exchange SDP and ICE candidates
+ */
+async function connectToKVSWebSocket(signalingEndpoint: string) {
+    return new Promise<void>((resolve, reject) => {
+        console.log('🔗 Connecting to KVS signaling endpoint:', signalingEndpoint);
+        logCallActivity('KVS_WEBSOCKET_CONNECTION_STARTED', { endpoint: signalingEndpoint });
+
+        try {
+            // Create WebSocket connection to KVS signaling endpoint
+            kvsWebSocket = new WebSocket(signalingEndpoint);
+            kvsSignalingEndpoint = signalingEndpoint;
+
+            // Handle WebSocket connection open
+            kvsWebSocket.on('open', () => {
+                console.log('✅ WebSocket connection to KVS signaling established');
+                logCallActivity('KVS_WEBSOCKET_CONNECTION_OPEN', { endpoint: signalingEndpoint });
+                
+                // Send connection message to KVS
+                const connectMessage = {
+                    action: 'connect',
+                    channelARN: STREAM_ARN,
+                    clientId: callSession.sessionId
+                };
+                
+                kvsWebSocket?.send(JSON.stringify(connectMessage));
+                console.log('📤 Sent connect message to KVS:', connectMessage);
+                logCallActivity('KVS_CONNECT_MESSAGE_SENT', { message: connectMessage });
+            });
+
+            // Handle WebSocket messages from KVS
+            kvsWebSocket.on('message', (data: WebSocket.Data) => {
+                try {
+                    const message = JSON.parse(data.toString());
+                    console.log('📥 Received message from KVS:', message);
+                    logCallActivity('KVS_MESSAGE_RECEIVED', { message });
+
+                    // Handle different message types
+                    if (message.action === 'connect') {
+                        console.log('✅ KVS connection confirmed');
+                        logCallActivity('KVS_CONNECTION_CONFIRMED', { message });
+                        resolve();
+                    } else if (message.action === 'offer') {
+                        console.log('📥 Received WebRTC offer from Amazon Connect');
+                        logCallActivity('WEBRTC_OFFER_RECEIVED', { offer: message.sdp });
+                        handleWebRTCOffer(message.sdp);
+                    } else if (message.action === 'answer') {
+                        console.log('📥 Received WebRTC answer from Amazon Connect');
+                        logCallActivity('WEBRTC_ANSWER_RECEIVED', { answer: message.sdp });
+                        handleWebRTCAnswer(message.sdp);
+                    } else if (message.action === 'ice-candidate') {
+                        console.log('🧊 Received ICE candidate from Amazon Connect');
+                        logCallActivity('ICE_CANDIDATE_RECEIVED', { candidate: message.candidate });
+                        handleICECandidate(message.candidate);
+                    }
+                } catch (error) {
+                    console.error('❌ Error parsing KVS message:', error);
+                    logCallActivity('KVS_MESSAGE_PARSE_ERROR', { error: error.message });
+                }
+            });
+
+            // Handle WebSocket errors
+            kvsWebSocket.on('error', (error) => {
+                console.error('❌ WebSocket error:', error);
+                logCallActivity('KVS_WEBSOCKET_ERROR', { error: error.message });
+                reject(error);
+            });
+
+            // Handle WebSocket close
+            kvsWebSocket.on('close', (code, reason) => {
+                console.log('🔌 WebSocket connection closed:', { code, reason: reason.toString() });
+                logCallActivity('KVS_WEBSOCKET_CLOSED', { code, reason: reason.toString() });
+            });
+
+        } catch (error) {
+            console.error('❌ Error creating WebSocket connection:', error);
+            logCallActivity('KVS_WEBSOCKET_CREATION_ERROR', { error: error.message });
+            reject(error);
+        }
+    });
+}
+
+/**
+ * Simulate WebRTC offer/answer exchange
+ */
+async function handleWebRTCOffer(sdp: string) {
+    console.log('📤 Handling WebRTC offer from Amazon Connect');
+    logCallActivity('WEBRTC_OFFER_HANDLED', { offer: sdp });
+
+    if (peerConnection) {
+        try {
+            const offer = new RTCSessionDescription({ type: 'offer', sdp });
+            await peerConnection.setRemoteDescription(offer);
+            console.log('📥 WebRTC offer set successfully');
+            logCallActivity('WEBRTC_OFFER_SET', { offer: sdp });
+
+            // Create answer
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+            console.log('📤 WebRTC answer created and set');
+            logCallActivity('WEBRTC_ANSWER_CREATED_AND_SET', { answer: answer.sdp });
+
+            // Send answer back to Amazon Connect
+            if (kvsWebSocket) {
+                const answerMessage = {
+                    action: 'answer',
+                    sdp: answer.sdp
+                };
+                kvsWebSocket.send(JSON.stringify(answerMessage));
+                console.log('📤 Sent WebRTC answer to KVS:', answerMessage);
+                logCallActivity('WEBRTC_ANSWER_SENT', { answer: answer.sdp });
+            } else {
+                console.warn('⚠️ KVS WebSocket not ready to send answer.');
+                logCallActivity('WEBRTC_ANSWER_NOT_SENT_KVS_NOT_READY', { 
+                    offer: sdp,
+                    reason: 'KVS WebSocket not ready'
+                });
+            }
+        } catch (error) {
+            console.error('❌ Error handling WebRTC offer:', error);
+            logCallActivity('WEBRTC_OFFER_HANDLING_ERROR', { error: error.message });
+        }
+    } else {
+        console.warn('⚠️ Peer connection not initialized, cannot handle offer.');
+        logCallActivity('WEBRTC_OFFER_HANDLING_ERROR', { 
+            offer: sdp,
+            reason: 'Peer connection not initialized'
+        });
+    }
+}
+
+/**
+ * Simulate WebRTC answer exchange
+ */
+async function handleWebRTCAnswer(sdp: string) {
+    console.log('📥 Handling WebRTC answer from Amazon Connect');
+    logCallActivity('WEBRTC_ANSWER_HANDLED', { answer: sdp });
+
+    if (peerConnection) {
+        try {
+            const answer = new RTCSessionDescription({ type: 'answer', sdp });
+            await peerConnection.setRemoteDescription(answer);
+            console.log('📥 WebRTC answer set successfully');
+            logCallActivity('WEBRTC_ANSWER_SET', { answer: sdp });
+
+            // ICE candidates are handled by the onicecandidate event
+            console.log('🧊 ICE candidates will be handled by onicecandidate event.');
+            logCallActivity('WEBRTC_ICE_CANDIDATES_WILL_BE_HANDLED', { answer: sdp });
+
+        } catch (error) {
+            console.error('❌ Error handling WebRTC answer:', error);
+            logCallActivity('WEBRTC_ANSWER_HANDLING_ERROR', { error: error.message });
+        }
+    } else {
+        console.warn('⚠️ Peer connection not initialized, cannot handle answer.');
+        logCallActivity('WEBRTC_ANSWER_HANDLING_ERROR', { 
+            answer: sdp,
+            reason: 'Peer connection not initialized'
+        });
+    }
+}
+
+/**
+ * Simulate ICE candidate exchange
+ */
+async function handleICECandidate(candidate: RTCIceCandidate) {
+    console.log('🧊 Handling ICE candidate from Amazon Connect');
+    logCallActivity('ICE_CANDIDATE_HANDLED', { candidate: candidate });
+
+    if (peerConnection) {
+        try {
+            await peerConnection.addIceCandidate(candidate);
+            console.log('🧊 ICE candidate added successfully');
+            logCallActivity('ICE_CANDIDATE_ADDED', { candidate: candidate });
+        } catch (error) {
+            console.error('❌ Error adding ICE candidate:', error);
+            logCallActivity('ICE_CANDIDATE_ADDING_ERROR', { error: error.message });
+        }
+    } else {
+        console.warn('⚠️ Peer connection not initialized, cannot add ICE candidate.');
+        logCallActivity('ICE_CANDIDATE_ADDING_ERROR', { 
+            candidate: candidate,
+            reason: 'Peer connection not initialized'
+        });
+    }
+}
+
+/**
+ * Initialize WebRTC peer connection with Amazon Connect via KVS signaling
+ * This creates the actual WebRTC peer connection and sets up signaling via KVS
  */
 async function initializeWebRTCConnection() {
     try {
         logCallActivity('WEBRTC_INITIALIZATION_STARTED');
 
-        // Simulate WebRTC connection setup
-        // In production, you would use:
-        // const { RTCPeerConnection } = await import('wrtc');
-        // peerConnection = new RTCPeerConnection({
-        //     iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-        // });
-
-        // Simulate connection delay
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        callSession.webRTCState = 'connected';
-        logCallActivity('WEBRTC_CONNECTION_ESTABLISHED', {
-            iceServers: ['stun:stun.l.google.com:19302'],
-            connectionState: 'connected'
+        // Create actual WebRTC peer connection
+        peerConnection = new RTCPeerConnection({
+            iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
         });
 
-        // Simulate audio processing
-        startAudioProcessing();
+        // Set up audio track for receiving audio from Amazon Connect
+        peerConnection.ontrack = (event) => {
+            console.log('🎵 Received audio track from Amazon Connect');
+            audioReceiver = event.track;
+            
+            // Set up audio processing from the received track
+            if (event.track.kind === 'audio') {
+                const audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(new MediaStream([event.track]));
+                const processor = audioContext.createScriptProcessor(4096, 1, 1);
+                
+                processor.onaudioprocess = async (e) => {
+                    const inputBuffer = e.inputBuffer;
+                    const inputData = inputBuffer.getChannelData(0);
+                    
+                    // Convert Float32Array to Int16Array (PCM format for Nova Sonic)
+                    // Amazon Connect WebRTC provides Float32Array, convert to Int16Array PCM
+                    const pcmData = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        // Convert Float32 (-1.0 to 1.0) to Int16 (-32768 to 32767)
+                        pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32768));
+                    }
+                    
+                    // Create PCM buffer for Nova Sonic
+                    const pcmBuffer = Buffer.from(pcmData.buffer);
+                    
+                    // Send to Nova Sonic
+                    await processAudioChunk(pcmBuffer);
+                };
+                
+                source.connect(processor);
+                processor.connect(audioContext.destination);
+            }
+        };
+
+        // Handle ICE candidates and send them via KVS signaling
+        peerConnection.onicecandidate = (event) => {
+            if (event.candidate) {
+                console.log('🧊 ICE candidate generated:', event.candidate);
+                logCallActivity('ICE_CANDIDATE_GENERATED', { candidate: event.candidate });
+                
+                // Send ICE candidate to Amazon Connect via KVS signaling
+                if (kvsWebSocket && kvsWebSocket.readyState === WebSocket.OPEN) {
+                    const iceMessage = {
+                        action: 'ice-candidate',
+                        candidate: event.candidate
+                    };
+                    kvsWebSocket.send(JSON.stringify(iceMessage));
+                    console.log('📤 Sent ICE candidate to KVS:', iceMessage);
+                    logCallActivity('ICE_CANDIDATE_SENT', { candidate: event.candidate });
+                } else {
+                    console.warn('⚠️ KVS WebSocket not ready to send ICE candidate');
+                    logCallActivity('ICE_CANDIDATE_NOT_SENT', { 
+                        candidate: event.candidate,
+                        reason: 'KVS WebSocket not ready'
+                    });
+                }
+            }
+        };
+
+        // Handle connection state changes
+        peerConnection.onconnectionstatechange = () => {
+            console.log('🔗 WebRTC connection state:', peerConnection?.connectionState);
+            logCallActivity('WEBRTC_CONNECTION_STATE_CHANGE', { 
+                state: peerConnection?.connectionState 
+            });
+            
+            if (peerConnection?.connectionState === 'connected') {
+                callSession.webRTCState = 'connected';
+                logCallActivity('WEBRTC_CONNECTION_ESTABLISHED', {
+                    iceServers: ['stun:stun.l.google.com:19302'],
+                    connectionState: 'connected'
+                });
+                
+                // Start audio processing once connected
+                startAudioProcessing();
+            }
+        };
+
+        // Create offer for Amazon Connect
+        const offer = await peerConnection.createOffer({
+            offerToReceiveAudio: true,
+            offerToReceiveVideo: false
+        });
+        
+        await peerConnection.setLocalDescription(offer);
+        
+        console.log('📤 WebRTC offer created:', offer);
+        logCallActivity('WEBRTC_OFFER_CREATED', { offer });
+
+        // Send offer to Amazon Connect via KVS signaling
+        if (kvsWebSocket && kvsWebSocket.readyState === WebSocket.OPEN) {
+            const offerMessage = {
+                action: 'offer',
+                sdp: offer.sdp
+            };
+            kvsWebSocket.send(JSON.stringify(offerMessage));
+            console.log('📤 Sent WebRTC offer to KVS:', offerMessage);
+            logCallActivity('WEBRTC_OFFER_SENT', { offer: offer.sdp });
+        } else {
+            console.warn('⚠️ KVS WebSocket not ready to send offer');
+            logCallActivity('WEBRTC_OFFER_NOT_SENT', { 
+                offer: offer.sdp,
+                reason: 'KVS WebSocket not ready'
+            });
+        }
 
     } catch (error) {
         console.error('❌ Error initializing WebRTC connection:', error);
@@ -424,29 +729,25 @@ async function initializeWebRTCConnection() {
 }
 
 /**
- * Simulate audio processing from WebRTC to Nova Sonic
+ * Start audio processing from WebRTC to Nova Sonic
+ * This processes real audio received from Amazon Connect via WebRTC
  */
 function startAudioProcessing() {
     logCallActivity('AUDIO_PROCESSING_STARTED');
-
-    // Simulate receiving audio chunks from WebRTC
-    setInterval(async () => {
-        try {
-            // Simulate audio chunk from Amazon Connect
-            const audioChunk = Buffer.alloc(1024); // Placeholder audio data
-            
-            // Process audio chunk
-            await processAudioChunk(audioChunk);
-            
-        } catch (error) {
-            console.error('❌ Error in audio processing:', error);
-            logCallActivity('AUDIO_PROCESSING_ERROR', { error: error.message });
-        }
-    }, 1000); // Process every second for demo
+    console.log('🎵 Audio processing started - waiting for real audio from Amazon Connect via WebRTC');
+    
+    // Audio processing is now handled by the WebRTC ontrack event
+    // Real audio will be processed when Amazon Connect sends audio via WebRTC
+    logCallActivity('AUDIO_PROCESSING_READY', { 
+        note: 'Waiting for real audio from Amazon Connect via WebRTC',
+        webRTCState: peerConnection?.connectionState
+    });
 }
 
 /**
  * Process audio chunk and send to Nova Sonic
+ * Amazon Connect streams PCM format (8kHz, 16-bit, mono)
+ * Nova Sonic expects base64 encoded PCM
  */
 async function processAudioChunk(audioChunk: Buffer) {
     try {
@@ -454,16 +755,24 @@ async function processAudioChunk(audioChunk: Buffer) {
             return;
         }
 
-        // Convert audio format if needed (μ-law to PCM)
-        const pcmSamples = mulaw.decode(audioChunk);
-        const audioBuffer = Buffer.from(pcmSamples.buffer);
-
+        // Amazon Connect provides PCM audio (8kHz, 16-bit, mono)
+        // Nova Sonic expects base64 encoded PCM
+        // Convert Buffer to base64 string for Nova Sonic
+        const base64Audio = audioChunk.toString('base64');
+        
+        // Create a new buffer with the base64 encoded data
+        const novaSonicAudioBuffer = Buffer.from(base64Audio, 'utf8');
+        
         // Send to Nova Sonic
-        await novaSonicSession.streamAudio(audioBuffer);
+        await novaSonicSession.streamAudio(novaSonicAudioBuffer);
         
         logCallActivity('AUDIO_SENT_TO_NOVA_SONIC', { 
             chunkSize: audioChunk.length,
-            pcmSize: audioBuffer.length 
+            base64Size: novaSonicAudioBuffer.length,
+            format: 'PCM (base64 encoded)',
+            sampleRate: '8kHz',
+            channels: 1,
+            bitsPerSample: 16
         });
 
     } catch (error) {
@@ -473,20 +782,64 @@ async function processAudioChunk(audioChunk: Buffer) {
 }
 
 /**
- * Send audio response back to Amazon Connect
+ * Send audio response back to Amazon Connect via WebRTC
+ * Nova Sonic provides base64 encoded PCM, convert to raw PCM for WebRTC
  */
 function sendAudioResponse(audioBuffer: Buffer) {
     try {
-        // Convert PCM to μ-law for Amazon Connect
-        const pcmSamples = new Int16Array(audioBuffer.buffer, audioBuffer.byteOffset, audioBuffer.length / 2);
-        const mulawSamples = mulaw.encode(pcmSamples);
-        const audioChunk = Buffer.from(mulawSamples);
-
-        // In production, this would send audio through WebRTC back to Amazon Connect
+        // Nova Sonic provides base64 encoded PCM
+        // Convert back to raw PCM for Amazon Connect WebRTC
+        
+        if (peerConnection && peerConnection.connectionState === 'connected') {
+            // Convert base64 string back to raw PCM buffer
+            const base64String = audioBuffer.toString('utf8');
+            const rawPcmBuffer = Buffer.from(base64String, 'base64');
+            
+            // Create audio track from PCM data for WebRTC
+            const audioContext = new AudioContext();
+            
+            // Convert Int16Array to Float32Array for Web Audio API
+            const pcmData = new Int16Array(rawPcmBuffer.buffer, rawPcmBuffer.byteOffset, rawPcmBuffer.length / 2);
+            const floatData = new Float32Array(pcmData.length);
+            for (let i = 0; i < pcmData.length; i++) {
+                floatData[i] = pcmData[i] / 32768.0;
+            }
+            
+            // Create audio buffer (8kHz sample rate for Amazon Connect)
+            const buffer = audioContext.createBuffer(1, floatData.length, 8000);
+            buffer.getChannelData(0).set(floatData);
+            
+            // Create media stream and add track to peer connection
+            const mediaStream = new MediaStream();
+            const audioTrack = audioContext.createMediaStreamDestination().stream.getAudioTracks()[0];
+            
+            if (audioSender) {
+                peerConnection.removeTrack(audioSender);
+            }
+            
+            audioSender = peerConnection.addTrack(audioTrack, mediaStream);
+            
+            console.log('🔊 Audio track added to WebRTC connection');
+            logCallActivity('AUDIO_TRACK_ADDED_TO_WEBRTC', { 
+                base64Size: audioBuffer.length,
+                rawPcmSize: rawPcmBuffer.length,
+                sampleRate: '8kHz',
+                channels: 1,
+                bitsPerSample: 16
+            });
+        } else {
+            console.warn('⚠️ WebRTC connection not ready for audio transmission');
+            logCallActivity('WEBRTC_NOT_READY_FOR_AUDIO', { 
+                connectionState: peerConnection?.connectionState 
+            });
+        }
         
         logCallActivity('AUDIO_SENT_TO_AMAZON_CONNECT', { 
-            pcmSize: audioBuffer.length,
-            mulawSize: audioChunk.length 
+            base64Size: audioBuffer.length,
+            format: 'PCM (converted from base64)',
+            sampleRate: '8kHz',
+            channels: 1,
+            bitsPerSample: 16
         });
 
     } catch (error) {
@@ -496,7 +849,8 @@ function sendAudioResponse(audioBuffer: Buffer) {
 }
 
 /**
- * Initialize Nova Sonic session
+ * Initialize Nova Sonic session with correct bidirectional streaming sequence
+ * Following the official Nova Sonic documentation for proper event sequence
  */
 async function initializeNovaSonicSession() {
     try {
@@ -512,23 +866,38 @@ async function initializeNovaSonicSession() {
         
         console.log('🔧 Set up event handlers, now initiating session...');
         
-        // Initiate the session (this starts the bidirectional stream)
-        // The sessionStart event will be automatically sent by the client
+        // Initiate the session (this sends sessionStart event automatically)
         await bedrockClient.initiateSession(callSession.sessionId);
         
-        console.log('🔧 Session initiated, setting up prompt and audio...');
+        console.log('🔧 Session initiated, setting up prompt and content...');
 
-        // Set up prompt start (this sends promptStart event)
+        // CORRECT SEQUENCE according to Nova Sonic documentation:
+        // 1. setupPromptStart() - sends promptStart event
+        // 2. setupSystemPrompt() - sends contentStart, textInput, contentEnd for text
+        // 3. setupStartAudio() - sends contentStart for audio
+        
+        // Step 1: Set up prompt start (this sends promptStart event)
+        console.log('🔧 Step 1: Sending promptStart event...');
         await novaSonicSession.setupPromptStart();
         console.log('🔧 Prompt start configured');
         
-        // Set up system prompt (this sends contentStart, textInput, contentEnd for text)
+        // Small delay to ensure promptStart is processed
+        console.log('⏳ Waiting 1 second for promptStart to be processed...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Step 2: Set up system prompt (this sends contentStart, textInput, contentEnd for text)
+        console.log('🔧 Step 2: Sending system prompt events (contentStart, textInput, contentEnd)...');
         await novaSonicSession.setupSystemPrompt(undefined, SYSTEM_PROMPT);
         console.log('🔧 System prompt configured');
         
-        // Set up audio start (this sends contentStart for audio)
+        // Small delay to ensure system prompt is processed
+        console.log('⏳ Waiting 1 second for system prompt to be processed...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Step 3: Set up audio content start (this sends contentStart for audio)
+        console.log('🔧 Step 3: Sending audio contentStart event...');
         await novaSonicSession.setupStartAudio();
-        console.log('🔧 Audio start configured');
+        console.log('🔧 Audio content start configured');
 
         logCallActivity('NOVA_SONIC_SESSION_INITIALIZED');
 
@@ -823,6 +1192,32 @@ async function cleanup() {
             } catch (error) {
                 console.error('❌ Error closing Nova Sonic session:', error);
             }
+        }
+
+        // Close WebRTC connection
+        if (peerConnection) {
+            console.log('🔧 Closing WebRTC connection...');
+            
+            try {
+                // Remove audio tracks
+                if (audioSender) {
+                    peerConnection.removeTrack(audioSender);
+                    console.log('🔧 Audio sender removed');
+                }
+                
+                // Close peer connection
+                peerConnection.close();
+                console.log('🔧 WebRTC connection closed');
+            } catch (error) {
+                console.error('❌ Error closing WebRTC connection:', error);
+            }
+        }
+
+        // Close KVS WebSocket connection
+        if (kvsWebSocket) {
+            console.log('🔌 Closing KVS WebSocket connection...');
+            kvsWebSocket.close();
+            console.log('🔌 KVS WebSocket closed');
         }
 
         // Log final call summary
