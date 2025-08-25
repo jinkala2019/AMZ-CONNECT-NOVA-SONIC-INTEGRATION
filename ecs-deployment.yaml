@@ -456,10 +456,10 @@ Resources:
           };
       Timeout: 60
       MemorySize: 256
-       Environment:
-         Variables:
-           ECS_CLUSTER_NAME: !Ref ECSClusterName
-           DEPLOYMENT_REGION: !Ref AWS::Region
+      Environment:
+        Variables:
+          ECS_CLUSTER_NAME: !Ref ECSClusterName
+          DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
         - Key: Name
           Value: Nova Sonic Lambda Function
