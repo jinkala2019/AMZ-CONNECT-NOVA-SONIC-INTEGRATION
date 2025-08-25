@@ -101,17 +101,33 @@ export const handler = async (event: LambdaEvent): Promise<LambdaResponse> => {
         // Execute the task (non-blocking)
         const result = await ecsClient.send(runTaskCommand);
 
+        console.log('📋 ECS RunTask result:', {
+            tasks: result.tasks ? result.tasks.length : 0,
+            failures: result.failures ? result.failures.length : 0,
+            hasTasks: !!result.tasks,
+            hasFailures: !!result.failures
+        });
+
+        // Check for failures first
+        if (result.failures && result.failures.length > 0) {
+            console.error('❌ ECS task failures:', result.failures);
+            throw new Error(`ECS task failed to start: ${result.failures.map(f => f.reason).join(', ')}`);
+        }
+
         if (!result.tasks || result.tasks.length === 0) {
-            throw new Error('No tasks were started');
+            console.error('❌ No tasks returned from ECS RunTask');
+            throw new Error('No tasks were started - ECS returned empty task list');
         }
 
         const task = result.tasks[0];
         const taskArn = task.taskArn;
         const taskStatus = task.lastStatus;
+        const taskDesiredStatus = task.desiredStatus;
 
         console.log('✅ ECS EC2 task started successfully for long-running call:', {
             taskArn,
             taskStatus,
+            desiredStatus: taskDesiredStatus,
             streamARN: StreamARN,
             contactId: ContactId,
             note: 'Task will handle entire call duration independently'

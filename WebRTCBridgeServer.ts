@@ -68,6 +68,12 @@ const stsClient = new STSClient({ region: AWS_REGION });
 // Session management
 let bedrockClient: S2SBidirectionalStreamClient;
 let novaSonicSession: StreamSession;
+let kvsConnection: any; // Add this for consistency
+
+// Session timeout management
+let sessionTimeoutId: NodeJS.Timeout | null = null;
+let lastNovaSonicResponseTime: Date = new Date();
+const SESSION_TIMEOUT_MS = 60000; // 60 seconds
 
 // Call tracking and logging
 interface CallSession {
@@ -539,113 +545,284 @@ async function initializeNovaSonicSession() {
 function setupNovaSonicEventHandlers() {
     if (!novaSonicSession) return;
 
+    // Track response statistics
+    let responseStats = {
+        textResponses: 0,
+        audioResponses: 0,
+        errors: 0,
+        totalEvents: 0
+    };
+
     // Add a general event handler to catch all events
     novaSonicSession.onEvent('any', (eventData) => {
+        responseStats.totalEvents++;
         console.log('🔍 Nova Sonic Event Received:', {
             type: eventData.type,
             data: eventData.data,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            eventNumber: responseStats.totalEvents
         });
         logCallActivity('NOVA_SONIC_EVENT_RECEIVED', { 
             eventType: eventData.type,
-            eventData: eventData.data 
+            eventData: eventData.data,
+            eventNumber: responseStats.totalEvents
         });
     });
 
     novaSonicSession.onEvent('contentStart', (data) => {
-        console.log('🎬 Nova Sonic Content Start:', data);
+        console.log('🎬 Nova Sonic Content Start:', {
+            data,
+            timestamp: new Date().toISOString()
+        });
         logCallActivity('NOVA_SONIC_CONTENT_START', { novaSonicData: data });
     });
 
     novaSonicSession.onEvent('textOutput', (data) => {
-        console.log('📝 Nova Sonic Text Output:', data);
-        const textContent = data.content;
-        logNovaSonicResponse('TEXT_OUTPUT', textContent);
+        responseStats.textResponses++;
+        console.log('📝 Nova Sonic Text Output:', {
+            content: data.content,
+            contentType: typeof data.content,
+            contentLength: data.content ? data.content.length : 0,
+            responseNumber: responseStats.textResponses,
+            timestamp: new Date().toISOString()
+        });
+        
+        // Log the actual text content for debugging
+        if (data.content) {
+            console.log('📝 Text Content from Nova Sonic:', `"${data.content}"`);
+        }
+        
+        logNovaSonicResponse('TEXT_OUTPUT', data.content);
+        logCallActivity('NOVA_SONIC_TEXT_RESPONSE', {
+            textContent: data.content,
+            responseNumber: responseStats.textResponses
+        });
+        
+        // Reset session timeout on Nova Sonic response
+        resetSessionTimeout();
     });
 
     novaSonicSession.onEvent('audioOutput', (data) => {
+        responseStats.audioResponses++;
         console.log('🔊 Nova Sonic Audio Output:', {
             contentLength: data.content ? data.content.length : 0,
-            hasContent: !!data.content
+            hasContent: !!data.content,
+            dataKeys: Object.keys(data),
+            responseNumber: responseStats.audioResponses,
+            timestamp: new Date().toISOString()
         });
+        
+        // Log audio content details
+        if (data.content) {
+            console.log('🔊 Audio Content Details:', {
+                base64Length: data.content.length,
+                contentType: typeof data.content,
+                firstChars: data.content.substring(0, 50) + '...',
+                lastChars: '...' + data.content.substring(data.content.length - 50)
+            });
+        }
+        
         try {
+            // Validate that content exists and is a string
+            if (!data.content || typeof data.content !== 'string') {
+                console.error('❌ Invalid audio content:', {
+                    hasContent: !!data.content,
+                    contentType: typeof data.content,
+                    contentLength: data.content ? data.content.length : 0,
+                    responseNumber: responseStats.audioResponses
+                });
+                logCallActivity('NOVA_SONIC_AUDIO_ERROR', { 
+                    error: 'Invalid audio content format',
+                    details: { hasContent: !!data.content, contentType: typeof data.content },
+                    responseNumber: responseStats.audioResponses
+                });
+                return;
+            }
+
             // Decode base64 to get the PCM buffer from Nova Sonic
-            const buffer = Buffer.from(data['content'], 'base64');
+            const buffer = Buffer.from(data.content, 'base64');
+            
+            console.log('🔊 Audio Buffer Details:', {
+                bufferLength: buffer.length,
+                bufferType: typeof buffer,
+                isBuffer: Buffer.isBuffer(buffer),
+                responseNumber: responseStats.audioResponses
+            });
+            
+            if (buffer.length === 0) {
+                console.warn('⚠️ Empty audio buffer received from Nova Sonic');
+                logCallActivity('NOVA_SONIC_AUDIO_WARNING', { 
+                    warning: 'Empty audio buffer received',
+                    responseNumber: responseStats.audioResponses
+                });
+                return;
+            }
+            
             sendAudioResponse(buffer);
             
             logCallActivity('NOVA_SONIC_AUDIO_PROCESSED', { 
-                audioLength: buffer.length 
+                audioLength: buffer.length,
+                responseNumber: responseStats.audioResponses
             });
+            
+            // Reset session timeout on Nova Sonic audio response
+            resetSessionTimeout();
         } catch (audioError) {
+            responseStats.errors++;
             console.error('❌ Error processing Nova Sonic audio:', audioError);
+            console.error('❌ Audio data that caused error:', {
+                hasContent: !!data.content,
+                contentType: typeof data.content,
+                contentLength: data.content ? data.content.length : 0,
+                error: audioError.message,
+                stack: audioError.stack,
+                responseNumber: responseStats.audioResponses
+            });
             logCallActivity('NOVA_SONIC_AUDIO_ERROR', { 
-                error: audioError.message 
+                error: audioError.message,
+                details: {
+                    hasContent: !!data.content,
+                    contentType: typeof data.content,
+                    contentLength: data.content ? data.content.length : 0
+                },
+                responseNumber: responseStats.audioResponses
             });
         }
     });
 
     novaSonicSession.onEvent('error', (data) => {
-        console.error('❌ Nova Sonic Error:', data);
+        responseStats.errors++;
+        console.error('❌ Nova Sonic Error:', {
+            errorData: data,
+            errorType: data.type || 'unknown',
+            timestamp: new Date().toISOString(),
+            errorNumber: responseStats.errors
+        });
         logCallActivity('NOVA_SONIC_ERROR', { 
             errorData: data,
-            errorType: data.type || 'unknown'
+            errorType: data.type || 'unknown',
+            errorNumber: responseStats.errors
         });
     });
 
     novaSonicSession.onEvent('contentEnd', (data) => {
-        console.log('🏁 Nova Sonic Content End:', data);
+        console.log('🏁 Nova Sonic Content End:', {
+            data,
+            timestamp: new Date().toISOString()
+        });
         logCallActivity('NOVA_SONIC_CONTENT_END', { novaSonicData: data });
     });
 
     novaSonicSession.onEvent('streamComplete', () => {
         console.log('✅ Nova Sonic Stream Complete');
-        logCallActivity('NOVA_SONIC_STREAM_COMPLETE');
+        console.log('📊 Final Response Statistics:', {
+            totalEvents: responseStats.totalEvents,
+            textResponses: responseStats.textResponses,
+            audioResponses: responseStats.audioResponses,
+            errors: responseStats.errors,
+            timestamp: new Date().toISOString()
+        });
+        logCallActivity('NOVA_SONIC_STREAM_COMPLETE', {
+            statistics: responseStats
+        });
     });
 
     // Add handlers for other potential events
     novaSonicSession.onEvent('sessionStart', (data) => {
-        console.log('🚀 Nova Sonic Session Start:', data);
+        console.log('🚀 Nova Sonic Session Start:', {
+            sessionData: data,
+            timestamp: new Date().toISOString()
+        });
         logCallActivity('NOVA_SONIC_SESSION_START', { sessionData: data });
     });
 
     novaSonicSession.onEvent('toolUse', (data) => {
-        console.log('🔧 Nova Sonic Tool Use:', data);
+        console.log('🔧 Nova Sonic Tool Use:', {
+            toolData: data,
+            timestamp: new Date().toISOString()
+        });
         logCallActivity('NOVA_SONIC_TOOL_USE', { toolData: data });
     });
 
     novaSonicSession.onEvent('toolEnd', (data) => {
-        console.log('🔧 Nova Sonic Tool End:', data);
+        console.log('🔧 Nova Sonic Tool End:', {
+            toolData: data,
+            timestamp: new Date().toISOString()
+        });
         logCallActivity('NOVA_SONIC_TOOL_END', { toolData: data });
     });
 
     novaSonicSession.onEvent('toolResult', (data) => {
-        console.log('🔧 Nova Sonic Tool Result:', data);
-        logCallActivity('NOVA_SONIC_TOOL_RESULT', { toolData: data });
+        console.log('🔧 Nova Sonic Tool Result:', {
+            toolResultData: data,
+            timestamp: new Date().toISOString()
+        });
+        logCallActivity('NOVA_SONIC_TOOL_RESULT', { toolResultData: data });
     });
 }
 
 /**
- * Cleanup resources
+ * Log comprehensive call statistics
+ */
+function logCallStatistics() {
+    const endTime = new Date();
+    const duration = endTime.getTime() - callSession.startTime.getTime();
+    
+    console.log('📊 CALL STATISTICS SUMMARY:', {
+        contactId: process.env.CONTACT_ID,
+        customerPhone: process.env.CUSTOMER_PHONE_NUMBER,
+        streamArn: process.env.STREAM_ARN,
+        startTime: callSession.startTime.toISOString(),
+        endTime: endTime.toISOString(),
+        duration: `${duration}ms (${Math.round(duration/1000)}s)`,
+        totalNovaSonicResponses: callSession.novaSonicResponses.length,
+        totalTranscriptEntries: callSession.transcriptLog.length,
+        novaSonicSessionActive: !!novaSonicSession,
+        kvsConnectionActive: !!kvsConnection,
+        timestamp: new Date().toISOString()
+    });
+    
+    logCallActivity('CALL_STATISTICS', {
+        duration,
+        totalNovaSonicResponses: callSession.novaSonicResponses.length,
+        totalTranscriptEntries: callSession.transcriptLog.length,
+        novaSonicSessionActive: !!novaSonicSession,
+        kvsConnectionActive: !!kvsConnection
+    });
+}
+
+/**
+ * Cleanup function to properly close connections and log statistics
  */
 async function cleanup() {
     try {
-        logCallActivity('CLEANUP_STARTED');
-
+        console.log('🧹 Starting cleanup...');
+        
+        // Clear session timeout
+        clearSessionTimeout();
+        
+        // Log final statistics
+        logCallStatistics();
+        
         // Close Nova Sonic session properly
         if (novaSonicSession) {
             console.log('🔧 Closing Nova Sonic session properly...');
             
-            // End audio content first
-            await novaSonicSession.endAudioContent();
-            console.log('🔧 Audio content ended');
-            
-            // End prompt
-            await novaSonicSession.endPrompt();
-            console.log('🔧 Prompt ended');
-            
-            // Close session (this sends sessionEnd event)
-            await novaSonicSession.close();
-            console.log('🔧 Session closed');
+            try {
+                // End audio content first
+                await novaSonicSession.endAudioContent();
+                console.log('🔧 Audio content ended');
+                
+                // End prompt
+                await novaSonicSession.endPrompt();
+                console.log('🔧 Prompt ended');
+                
+                // Close session (this sends sessionEnd event)
+                await novaSonicSession.close();
+                console.log('🔧 Session closed');
+            } catch (error) {
+                console.error('❌ Error closing Nova Sonic session:', error);
+            }
         }
 
         // Log final call summary
@@ -668,6 +845,77 @@ async function cleanup() {
     } catch (error) {
         console.error('❌ Error during cleanup:', error);
         logCallActivity('CLEANUP_ERROR', { error: error.message });
+    }
+}
+
+/**
+ * Start session timeout monitoring
+ */
+function startSessionTimeoutMonitoring() {
+    console.log('⏰ Starting session timeout monitoring (60 seconds)...');
+    
+    // Clear any existing timeout
+    if (sessionTimeoutId) {
+        clearTimeout(sessionTimeoutId);
+    }
+    
+    // Set new timeout
+    sessionTimeoutId = setTimeout(async () => {
+        console.log('⏰ Session timeout reached - no Nova Sonic response for 60 seconds');
+        logCallActivity('SESSION_TIMEOUT', { 
+            timeoutMs: SESSION_TIMEOUT_MS,
+            lastResponseTime: lastNovaSonicResponseTime.toISOString()
+        });
+        
+        // Clean up the session
+        await cleanup();
+        
+        // Exit the process to free up resources
+        console.log('🛑 Exiting due to session timeout');
+        process.exit(0);
+    }, SESSION_TIMEOUT_MS);
+    
+    logCallActivity('SESSION_TIMEOUT_MONITORING_STARTED', { timeoutMs: SESSION_TIMEOUT_MS });
+}
+
+/**
+ * Reset session timeout when Nova Sonic responds
+ */
+function resetSessionTimeout() {
+    lastNovaSonicResponseTime = new Date();
+    
+    // Clear existing timeout
+    if (sessionTimeoutId) {
+        clearTimeout(sessionTimeoutId);
+    }
+    
+    // Set new timeout
+    sessionTimeoutId = setTimeout(async () => {
+        console.log('⏰ Session timeout reached - no Nova Sonic response for 60 seconds');
+        logCallActivity('SESSION_TIMEOUT', { 
+            timeoutMs: SESSION_TIMEOUT_MS,
+            lastResponseTime: lastNovaSonicResponseTime.toISOString()
+        });
+        
+        // Clean up the session
+        await cleanup();
+        
+        // Exit the process to free up resources
+        console.log('🛑 Exiting due to session timeout');
+        process.exit(0);
+    }, SESSION_TIMEOUT_MS);
+    
+    console.log('⏰ Session timeout reset - last Nova Sonic response:', lastNovaSonicResponseTime.toISOString());
+}
+
+/**
+ * Clear session timeout
+ */
+function clearSessionTimeout() {
+    if (sessionTimeoutId) {
+        clearTimeout(sessionTimeoutId);
+        sessionTimeoutId = null;
+        console.log('⏰ Session timeout cleared');
     }
 }
 
@@ -709,6 +957,10 @@ fastify.register(fastifyFormBody);
 
 // Health check endpoint
 fastify.get('/health', async (request, reply) => {
+    const now = new Date();
+    const timeSinceLastResponse = now.getTime() - lastNovaSonicResponseTime.getTime();
+    const timeUntilTimeout = SESSION_TIMEOUT_MS - timeSinceLastResponse;
+    
     reply.send({ 
         status: 'healthy',
         sessionId: callSession.sessionId,
@@ -718,7 +970,11 @@ fastify.get('/health', async (request, reply) => {
         webRTCState: callSession.webRTCState,
         kvsState: callSession.kvsState,
         startTime: callSession.startTime.toISOString(),
-        timestamp: new Date().toISOString()
+        lastNovaSonicResponse: lastNovaSonicResponseTime.toISOString(),
+        timeSinceLastResponse: `${Math.round(timeSinceLastResponse / 1000)}s`,
+        timeUntilTimeout: `${Math.round(timeUntilTimeout / 1000)}s`,
+        sessionTimeoutActive: sessionTimeoutId !== null,
+        timestamp: now.toISOString()
     });
 });
 
@@ -754,6 +1010,9 @@ async function startServer() {
         
         // Connect to KVS signaling channel
         await connectToKVSSignalingChannel();
+        
+        // Start session timeout monitoring
+        startSessionTimeoutMonitoring();
         
         // Start the Fastify server for health checks
         await fastify.listen({ port: 3000, host: '0.0.0.0' });
