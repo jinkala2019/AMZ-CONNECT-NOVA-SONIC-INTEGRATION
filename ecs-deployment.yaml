@@ -177,14 +177,14 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-                             - Effect: Allow
-                 Action:
-                   - ecs:RunTask
-                   - ecs:StopTask
-                   - ecs:DescribeTasks
-                   - ecs:DescribeTaskDefinition
-                   - ecs:ListTasks
-                 Resource: '*'
+              - Effect: Allow
+                Action:
+                  - ecs:RunTask
+                  - ecs:StopTask
+                  - ecs:DescribeTasks
+                  - ecs:DescribeTaskDefinition
+                  - ecs:ListTasks
+                Resource: '*'
               - Effect: Allow
                 Action:
                   - iam:PassRole
