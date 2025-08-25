@@ -555,7 +555,7 @@ Resources:
           Value: Nova Sonic Lambda Function
         - Key: Environment
           Value: Production
-      DependsOn: LambdaLogGroup
+    DependsOn: LambdaLogGroup
 
   # Continuous Bridge Lambda Function
   ContinuousBridgeLambdaFunction:
