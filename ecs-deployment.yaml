@@ -191,6 +191,14 @@ Resources:
                 Resource:
                   - !GetAtt ECSTaskExecutionRole.Arn
                   - !GetAtt ECSTaskRole.Arn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: 
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${LambdaFunctionName}:*"
+                  - !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${AWS::StackName}-invoke-continuous-bridge:*"
       Tags:
         - Key: Name
           Value: Nova Sonic Lambda Execution Role
@@ -429,6 +437,75 @@ Resources:
         - Key: Environment
           Value: Production
 
+  # ECS Task Definition for Nova Sonic Bridge
+  ECSTaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: nova-sonic-ec2-bridge
+      NetworkMode: awsvpc
+      RequiresCompatibilities:
+        - EC2
+      Cpu: 512
+      Memory: 1024
+      ExecutionRoleArn: !GetAtt ECSTaskExecutionRole.Arn
+      TaskRoleArn: !GetAtt ECSTaskRole.Arn
+      ContainerDefinitions:
+        - Name: nova-sonic-bridge
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ECRRepositoryName}:latest"
+          PortMappings:
+            - ContainerPort: 3000
+              Protocol: tcp
+          Environment:
+            - Name: NODE_ENV
+              Value: production
+            - Name: AWS_REGION
+              Value: !Ref AWS::Region
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref ECSLogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: ecs
+          HealthCheck:
+            Command:
+              - CMD-SHELL
+              - curl -f http://localhost:3000/health || exit 1
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 60
+          Essential: true
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Bridge Task Definition
+        - Key: Environment
+          Value: Production
+
+  # ECS Service for Nova Sonic Bridge
+  ECSService:
+    Type: AWS::ECS::Service
+    Properties:
+      ServiceName: nova-sonic-bridge-service
+      Cluster: !Ref ECSCluster
+      TaskDefinition: !Ref ECSTaskDefinition
+      DesiredCount: 1
+      LaunchType: EC2
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          SecurityGroups:
+            - !Ref ECSSecurityGroup
+          Subnets: !Ref PrivateSubnetIds
+          AssignPublicIp: DISABLED
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 100
+      HealthCheckGracePeriodSeconds: 60
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Bridge Service
+        - Key: Environment
+          Value: Production
+
   # CloudWatch Log Group for Lambda
   LambdaLogGroup:
     Type: AWS::Logs::LogGroup
@@ -438,6 +515,18 @@ Resources:
       Tags:
         - Key: Name
           Value: Nova Sonic Lambda Logs
+        - Key: Environment
+          Value: Production
+
+  # CloudWatch Log Group for Continuous Bridge Lambda
+  ContinuousBridgeLambdaLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${AWS::StackName}-invoke-continuous-bridge"
+      RetentionInDays: 30
+      Tags:
+        - Key: Name
+          Value: Nova Sonic Continuous Bridge Lambda Logs
         - Key: Environment
           Value: Production
 
@@ -462,11 +551,11 @@ Resources:
           ECS_CLUSTER_NAME: !Ref ECSClusterName
           DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
-        - Key: Name
-          Value: Nova Sonic Lambda Function
-        - Key: Environment
-          Value: Production
-    DependsOn: LambdaLogGroup
+                 - Key: Name
+           Value: Nova Sonic Lambda Function
+         - Key: Environment
+           Value: Production
+     DependsOn: LambdaLogGroup
 
   # Continuous Bridge Lambda Function
   ContinuousBridgeLambdaFunction:
@@ -613,7 +702,7 @@ Resources:
           Value: Nova Sonic Continuous Bridge Lambda Function
         - Key: Environment
           Value: Production
-    DependsOn: LambdaLogGroup
+    DependsOn: ContinuousBridgeLambdaLogGroup
 
 Outputs:
   ECRRepositoryUri:
@@ -693,3 +782,27 @@ Outputs:
     Value: !Ref LambdaLogGroup
     Export:
       Name: !Sub "${AWS::StackName}-LambdaLogGroupName"
+
+  ContinuousBridgeLambdaFunctionName:
+    Description: Name of the Continuous Bridge Lambda function
+    Value: !Ref ContinuousBridgeLambdaFunction
+    Export:
+      Name: !Sub "${AWS::StackName}-ContinuousBridgeLambdaFunctionName"
+
+  ContinuousBridgeLambdaFunctionArn:
+    Description: ARN of the Continuous Bridge Lambda function
+    Value: !GetAtt ContinuousBridgeLambdaFunction.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-ContinuousBridgeLambdaFunctionArn"
+
+  ECSTaskDefinitionArn:
+    Description: ARN of the ECS task definition
+    Value: !Ref ECSTaskDefinition
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSTaskDefinitionArn"
+
+  ECSServiceName:
+    Description: Name of the ECS service
+    Value: !Ref ECSService
+    Export:
+      Name: !Sub "${AWS::StackName}-ECSServiceName"
