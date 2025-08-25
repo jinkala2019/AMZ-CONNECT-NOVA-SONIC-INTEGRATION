@@ -177,13 +177,14 @@ Resources:
           PolicyDocument:
             Version: '2012-10-17'
             Statement:
-              - Effect: Allow
-                Action:
-                  - ecs:RunTask
-                  - ecs:StopTask
-                  - ecs:DescribeTasks
-                  - ecs:DescribeTaskDefinition
-                Resource: '*'
+                             - Effect: Allow
+                 Action:
+                   - ecs:RunTask
+                   - ecs:StopTask
+                   - ecs:DescribeTasks
+                   - ecs:DescribeTaskDefinition
+                   - ecs:ListTasks
+                 Resource: '*'
               - Effect: Allow
                 Action:
                   - iam:PassRole
@@ -474,12 +475,132 @@ Resources:
       FunctionName: !Sub "${AWS::StackName}-invoke-continuous-bridge"
       Runtime: nodejs18.x
       Role: !GetAtt LambdaExecutionRole.Arn
-      Handler: dist/lambda-invoke-continuous-bridge.handler
+      Handler: index.handler
       Code:
         ZipFile: |
+          const { ECSClient, ListTasksCommand, DescribeTasksCommand } = require("@aws-sdk/client-ecs");
+          
+          const ecsClient = new ECSClient({ region: process.env.DEPLOYMENT_REGION || 'us-east-1' });
+          
           exports.handler = async (event) => {
-            console.log('Continuous bridge Lambda function placeholder - replace with actual code');
-            return { statusCode: 200, body: 'Placeholder' };
+            try {
+              console.log('🚀 Lambda invoked with event:', JSON.stringify(event, null, 2));
+          
+              // Validate event structure
+              if (!event.Details || !event.Details.Parameters) {
+                console.error('❌ Invalid event structure. Expected event.Details.Parameters');
+                throw new Error('Invalid event structure. Expected event.Details.Parameters');
+              }
+          
+              const { StreamARN, ContactId, CustomerPhoneNumber } = event.Details.Parameters;
+          
+              // Validate required parameters
+              if (!StreamARN || !ContactId || !CustomerPhoneNumber) {
+                throw new Error('Missing required parameters: StreamARN, ContactId, or CustomerPhoneNumber');
+              }
+          
+              // Find the running ECS task
+              const listTasksCommand = new ListTasksCommand({
+                cluster: process.env.ECS_CLUSTER_NAME,
+                family: 'nova-sonic-ec2-bridge',
+                desiredStatus: 'RUNNING'
+              });
+          
+              const listResult = await ecsClient.send(listTasksCommand);
+              
+              if (!listResult.taskArns || listResult.taskArns.length === 0) {
+                throw new Error('No running ECS tasks found for nova-sonic-ec2-bridge');
+              }
+          
+              const taskArn = listResult.taskArns[0];
+              console.log('📋 Found running task:', taskArn);
+          
+              // Get task details to find the private IP
+              const describeTasksCommand = new DescribeTasksCommand({
+                cluster: process.env.ECS_CLUSTER_NAME,
+                tasks: [taskArn]
+              });
+          
+              const describeResult = await ecsClient.send(describeTasksCommand);
+              
+              if (!describeResult.tasks || describeResult.tasks.length === 0) {
+                throw new Error('Could not get task details');
+              }
+          
+              const task = describeResult.tasks[0];
+              const privateIp = task.containers?.[0]?.networkInterfaces?.[0]?.privateIpv4Address;
+          
+              if (!privateIp) {
+                throw new Error('Could not get task private IP address');
+              }
+          
+              console.log('🌐 Task private IP:', privateIp);
+          
+              // Call the continuous bridge endpoint
+              const bridgeUrl = `http://${privateIp}:3000/handle-call`;
+              const payload = {
+                contactId: ContactId,
+                customerPhoneNumber: CustomerPhoneNumber,
+                streamARN: StreamARN
+              };
+          
+              console.log('📞 Calling continuous bridge:', {
+                url: bridgeUrl,
+                payload: payload
+              });
+          
+              // Make HTTP request to the bridge
+              const response = await fetch(bridgeUrl, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
+              });
+          
+              if (!response.ok) {
+                const errorText = await response.text();
+                throw new Error(`Bridge call failed: ${response.status} ${errorText}`);
+              }
+          
+              const bridgeResponse = await response.json();
+          
+              console.log('✅ Bridge call successful:', bridgeResponse);
+          
+              // Return success response
+              return {
+                statusCode: 200,
+                body: JSON.stringify({
+                  success: true,
+                  taskArn,
+                  taskPrivateIp: privateIp,
+                  streamARN: StreamARN,
+                  contactId: ContactId,
+                  customerPhoneNumber: CustomerPhoneNumber,
+                  bridgeResponse,
+                  message: 'Call handled by continuous WebRTC bridge',
+                  callStartTime: new Date().toISOString()
+                }),
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              };
+          
+            } catch (error) {
+              console.error('❌ Error calling continuous bridge:', error);
+              
+              return {
+                statusCode: 500,
+                body: JSON.stringify({
+                  success: false,
+                  error: error instanceof Error ? error.message : 'Unknown error',
+                  message: 'Failed to call continuous WebRTC bridge'
+                }),
+                headers: {
+                  'Content-Type': 'application/json'
+                }
+              };
+            }
           };
       Timeout: 60
       MemorySize: 256
