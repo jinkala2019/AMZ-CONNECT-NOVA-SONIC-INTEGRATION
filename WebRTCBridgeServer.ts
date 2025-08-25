@@ -292,6 +292,8 @@ async function cleanupRole() {
  */
 async function initializeNovaSonicClient() {
     try {
+        console.log('🔧 Starting Nova Sonic client initialization...');
+        
         // Create or get the role ARN
         const roleArn = await createNovaSonicRole();
         
@@ -314,9 +316,20 @@ async function initializeNovaSonicClient() {
         });
 
         console.log('✅ Nova Sonic client initialized successfully');
+        console.log('🔧 Client configuration:', {
+            region: AWS_REGION,
+            roleArn: roleArn,
+            maxConcurrentStreams: 10
+        });
+        
         return client;
     } catch (error) {
         console.error('❌ Failed to initialize Nova Sonic client:', error);
+        console.error('❌ Error details:', {
+            message: error.message,
+            stack: error.stack,
+            region: AWS_REGION
+        });
         throw error;
     }
 }
@@ -485,21 +498,38 @@ async function initializeNovaSonicSession() {
 
         // Create Nova Sonic session
         novaSonicSession = bedrockClient.createStreamSession(callSession.sessionId);
-        bedrockClient.initiateSession(callSession.sessionId);
-
-        // Set up system prompt
-        await novaSonicSession.setupPromptStart();
-        await novaSonicSession.setupSystemPrompt(undefined, SYSTEM_PROMPT);
-        await novaSonicSession.setupStartAudio();
-
-        // Set up event handlers
+        
+        console.log('🔧 Created Nova Sonic session:', callSession.sessionId);
+        
+        // Set up event handlers BEFORE initiating the session
         setupNovaSonicEventHandlers();
+        
+        console.log('🔧 Set up event handlers, now initiating session...');
+        
+        // Initiate the session (this starts the bidirectional stream)
+        // The sessionStart event will be automatically sent by the client
+        await bedrockClient.initiateSession(callSession.sessionId);
+        
+        console.log('🔧 Session initiated, setting up prompt and audio...');
+
+        // Set up prompt start (this sends promptStart event)
+        await novaSonicSession.setupPromptStart();
+        console.log('🔧 Prompt start configured');
+        
+        // Set up system prompt (this sends contentStart, textInput, contentEnd for text)
+        await novaSonicSession.setupSystemPrompt(undefined, SYSTEM_PROMPT);
+        console.log('🔧 System prompt configured');
+        
+        // Set up audio start (this sends contentStart for audio)
+        await novaSonicSession.setupStartAudio();
+        console.log('🔧 Audio start configured');
 
         logCallActivity('NOVA_SONIC_SESSION_INITIALIZED');
 
     } catch (error) {
         console.error('❌ Error initializing Nova Sonic session:', error);
         logCallActivity('NOVA_SONIC_SESSION_INITIALIZATION_FAILED', { error: error.message });
+        throw error;
     }
 }
 
@@ -509,16 +539,35 @@ async function initializeNovaSonicSession() {
 function setupNovaSonicEventHandlers() {
     if (!novaSonicSession) return;
 
+    // Add a general event handler to catch all events
+    novaSonicSession.onEvent('any', (eventData) => {
+        console.log('🔍 Nova Sonic Event Received:', {
+            type: eventData.type,
+            data: eventData.data,
+            timestamp: new Date().toISOString()
+        });
+        logCallActivity('NOVA_SONIC_EVENT_RECEIVED', { 
+            eventType: eventData.type,
+            eventData: eventData.data 
+        });
+    });
+
     novaSonicSession.onEvent('contentStart', (data) => {
+        console.log('🎬 Nova Sonic Content Start:', data);
         logCallActivity('NOVA_SONIC_CONTENT_START', { novaSonicData: data });
     });
 
     novaSonicSession.onEvent('textOutput', (data) => {
+        console.log('📝 Nova Sonic Text Output:', data);
         const textContent = data.content;
         logNovaSonicResponse('TEXT_OUTPUT', textContent);
     });
 
     novaSonicSession.onEvent('audioOutput', (data) => {
+        console.log('🔊 Nova Sonic Audio Output:', {
+            contentLength: data.content ? data.content.length : 0,
+            hasContent: !!data.content
+        });
         try {
             // Decode base64 to get the PCM buffer from Nova Sonic
             const buffer = Buffer.from(data['content'], 'base64');
@@ -528,6 +577,7 @@ function setupNovaSonicEventHandlers() {
                 audioLength: buffer.length 
             });
         } catch (audioError) {
+            console.error('❌ Error processing Nova Sonic audio:', audioError);
             logCallActivity('NOVA_SONIC_AUDIO_ERROR', { 
                 error: audioError.message 
             });
@@ -535,6 +585,7 @@ function setupNovaSonicEventHandlers() {
     });
 
     novaSonicSession.onEvent('error', (data) => {
+        console.error('❌ Nova Sonic Error:', data);
         logCallActivity('NOVA_SONIC_ERROR', { 
             errorData: data,
             errorType: data.type || 'unknown'
@@ -542,11 +593,34 @@ function setupNovaSonicEventHandlers() {
     });
 
     novaSonicSession.onEvent('contentEnd', (data) => {
+        console.log('🏁 Nova Sonic Content End:', data);
         logCallActivity('NOVA_SONIC_CONTENT_END', { novaSonicData: data });
     });
 
     novaSonicSession.onEvent('streamComplete', () => {
+        console.log('✅ Nova Sonic Stream Complete');
         logCallActivity('NOVA_SONIC_STREAM_COMPLETE');
+    });
+
+    // Add handlers for other potential events
+    novaSonicSession.onEvent('sessionStart', (data) => {
+        console.log('🚀 Nova Sonic Session Start:', data);
+        logCallActivity('NOVA_SONIC_SESSION_START', { sessionData: data });
+    });
+
+    novaSonicSession.onEvent('toolUse', (data) => {
+        console.log('🔧 Nova Sonic Tool Use:', data);
+        logCallActivity('NOVA_SONIC_TOOL_USE', { toolData: data });
+    });
+
+    novaSonicSession.onEvent('toolEnd', (data) => {
+        console.log('🔧 Nova Sonic Tool End:', data);
+        logCallActivity('NOVA_SONIC_TOOL_END', { toolData: data });
+    });
+
+    novaSonicSession.onEvent('toolResult', (data) => {
+        console.log('🔧 Nova Sonic Tool Result:', data);
+        logCallActivity('NOVA_SONIC_TOOL_RESULT', { toolData: data });
     });
 }
 
@@ -557,9 +631,21 @@ async function cleanup() {
     try {
         logCallActivity('CLEANUP_STARTED');
 
-        // Close Nova Sonic session
+        // Close Nova Sonic session properly
         if (novaSonicSession) {
+            console.log('🔧 Closing Nova Sonic session properly...');
+            
+            // End audio content first
+            await novaSonicSession.endAudioContent();
+            console.log('🔧 Audio content ended');
+            
+            // End prompt
+            await novaSonicSession.endPrompt();
+            console.log('🔧 Prompt ended');
+            
+            // Close session (this sends sessionEnd event)
             await novaSonicSession.close();
+            console.log('🔧 Session closed');
         }
 
         // Log final call summary

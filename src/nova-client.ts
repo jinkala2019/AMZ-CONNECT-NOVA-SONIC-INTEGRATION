@@ -518,11 +518,11 @@ import {
   
     // Set up initial events for a session
     private setupSessionStartEvent(sessionId: string): void {
-      console.log(`Setting up initial events for session ${sessionId}...`);
+      console.log(`Setting up session start event for session ${sessionId}...`);
       const session = this.activeSessions.get(sessionId);
       if (!session) return;
-  
-      // Session start event
+
+      // Session start event - this should be the FIRST event sent
       this.addEventToSessionQueue(sessionId, {
         event: {
           sessionStart: {
@@ -530,6 +530,8 @@ import {
           }
         }
       });
+      
+      console.log(`Session start event queued for session ${sessionId}`);
     }
     public setupPromptStartEvent(sessionId: string): void {
       console.log(`Setting up prompt start event for session ${sessionId}...`);
