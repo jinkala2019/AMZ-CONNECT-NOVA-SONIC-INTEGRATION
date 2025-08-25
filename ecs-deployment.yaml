@@ -551,11 +551,11 @@ Resources:
           ECS_CLUSTER_NAME: !Ref ECSClusterName
           DEPLOYMENT_REGION: !Ref AWS::Region
       Tags:
-                 - Key: Name
-           Value: Nova Sonic Lambda Function
-         - Key: Environment
-           Value: Production
-     DependsOn: LambdaLogGroup
+        - Key: Name
+          Value: Nova Sonic Lambda Function
+        - Key: Environment
+          Value: Production
+      DependsOn: LambdaLogGroup
 
   # Continuous Bridge Lambda Function
   ContinuousBridgeLambdaFunction:
